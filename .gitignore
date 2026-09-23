@@ -32,7 +32,10 @@ __pycache__/
 /launcher/**/bin/
 /launcher/**/obj/
 
-#Gatekeeping ts
-/docs/
+#Gatekeeping ts (only the guides the launcher links to are public)
+/docs/*
+!/docs/GETTING_STARTED.md
+!/docs/TROUBLESHOOTING.md
+!/docs/MODDING.md
 /research/
 /switch/toolchain-test
