@@ -30,3 +30,6 @@ Tested on one PC: the game boots, plays full Arcade matches with a controller an
 | `docs/` | Player guides, build notes, releasing |
 
 Build and run from a checkout with the steps in [PC build](docs/PC_BUILD.md). Release process: [Releasing](docs/RELEASING.md). Switch is a later target; `switch/toolchain-test/` only proves the libnx toolchain.
+
+## Like what I do?
+I love what I do and want to keep sharing it with the world. You can directly support me and my projects here: https://ko-fi.com/kawaiibunga
