@@ -1,0 +1,21 @@
+# Generic devkitA64/libnx CMake toolchain. It configures a normal Switch ELF;
+# it does not make an unported ReXGlue runtime buildable.
+set(CMAKE_SYSTEM_NAME Generic)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+set(DEVKITPRO "$ENV{DEVKITPRO}" CACHE PATH "devkitPro root")
+if(NOT DEVKITPRO OR NOT EXISTS "${DEVKITPRO}/devkitA64")
+  message(FATAL_ERROR "Set DEVKITPRO to a devkitPro root containing devkitA64.")
+endif()
+set(_a64 "${DEVKITPRO}/devkitA64/bin/aarch64-none-elf-")
+set(CMAKE_C_COMPILER "${_a64}gcc")
+set(CMAKE_CXX_COMPILER "${_a64}g++")
+set(CMAKE_AR "${_a64}gcc-ar")
+set(CMAKE_RANLIB "${_a64}gcc-ranlib")
+set(_switch_flags "-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE -D__SWITCH__")
+set(CMAKE_C_FLAGS_INIT "-ffunction-sections -fdata-sections ${_switch_flags}")
+set(CMAKE_CXX_FLAGS_INIT "-ffunction-sections -fdata-sections ${_switch_flags}")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-specs=${DEVKITPRO}/libnx/switch.specs -Wl,--gc-sections")
+include_directories(SYSTEM "${DEVKITPRO}/libnx/include" "${DEVKITPRO}/portlibs/switch/include")
+link_directories("${DEVKITPRO}/libnx/lib" "${DEVKITPRO}/portlibs/switch/lib")
+

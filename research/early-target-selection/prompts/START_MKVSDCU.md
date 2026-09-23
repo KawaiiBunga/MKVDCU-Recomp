@@ -1,0 +1,5 @@
+# Follow-up prompt: Mortal Kombat vs. DC Universe
+
+> Archived initial bring-up prompt. The current PC build already boots and plays; see [status](../../../docs/STATUS.md).
+
+I have supplied a legally obtained, extracted Xbox 360 **retail** Mortal Kombat vs. DC Universe dump and ran `./setup-target.ps1 mkvsdcu "<path>"`. Read `targets/mkvsdcu/reports/bring-up.json`, `docs/TARGET_INPUTS.md`, and `docs/TARGET_COMPARISON.md`. Validate that the dump is retail (not a prototype), then inventory the exact XEX metadata, edition/region/media ID/version, title-update relation, companion modules, and full UE3 asset layout without modifying `user-game-files/original`. Initialize the official ReXGlue project against the ignored working copy, run host codegen, and resolve the first errors toward an offline host boot. Do not apply title updates speculatively, import game-specific UE3/Xenos patches into the generic template, or attempt a Switch rendering build until the host runtime/import boundary is understood.

@@ -1,0 +1,29 @@
+# User-supplied game files and generated/derived output stay local.
+/user-game-files/
+/targets/*/private/*
+/targets/mkvsdcu/private/rexglue-host/*
+!/targets/mkvsdcu/private/rexglue-host/
+!/targets/mkvsdcu/private/rexglue-host/CMakeLists.txt
+!/targets/mkvsdcu/private/rexglue-host/CMakePresets.json
+!/targets/mkvsdcu/private/rexglue-host/mkvsdcu_manifest.toml
+!/targets/mkvsdcu/private/rexglue-host/src/
+!/targets/mkvsdcu/private/rexglue-host/config/
+/targets/mkvsdcu/private/rexglue-host/config/*
+!/targets/mkvsdcu/private/rexglue-host/config/mkvsdcu_functions.toml
+!/targets/mkvsdcu/private/rexglue-host/generated/
+/targets/mkvsdcu/private/rexglue-host/generated/*
+!/targets/mkvsdcu/private/rexglue-host/generated/rexglue.cmake
+/targets/*/generated/
+/targets/*/reports/
+/work/
+
+# Local SDK / build products.
+/references/
+/dist/
+/build/
+/switch/toolchain-test/build/
+/CMakeUserPresets.json
+*.nro
+*.nacp
+*.elf
+__pycache__/

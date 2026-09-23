@@ -1,0 +1,82 @@
+# Manual function-entry seeds for the exact retail XEX identified in
+# the retail XEX with SHA-256
+# 2955F2E2BE61EC1948CD2FD3538AD45BEB04772F5EBD5E0FB1BFDE484748E5A7.
+# These are observed analysis facts, not UE3/Xenos runtime patches. Do not
+# reuse them for another region, edition, executable, or title update.
+
+[functions]
+"0x82B3A498" = {}
+"0x828DACE8" = {}
+"0x8271F300" = {}
+"0x828DFEA0" = {}
+"0x828EA6D8" = {}
+"0x82A41D94" = {}
+"0x82A4ABEC" = {}
+"0x82B79228" = {}
+"0x822D0B98" = {}
+"0x823F9C48" = {}
+"0x82B93038" = {}
+"0x825CB858" = {}
+"0x82332A80" = {}
+"0x82273128" = {}
+"0x828E07F0" = {}
+"0x828E3E70" = {}
+"0x82D00E08" = {}
+"0x82E59988" = {}
+"0x82D58268" = {}
+"0x82284078" = {}
+"0x82D57C30" = {}
+"0x82D57278" = {}
+"0x82D7CFA8" = {}
+
+"0x82D79058" = {}
+
+"0x82D57C28" = {}
+
+"0x8262CE90" = {}
+
+"0x82C075A8" = {}
+
+"0x82A4E390" = {}
+
+"0x82A41B60" = {}
+
+"0x82A93AB0" = {}
+
+"0x82A9E888" = {}
+
+"0x82AC9C58" = {}
+
+"0x82AB9AB8" = {}
+
+"0x82A6B8B8" = {}
+
+"0x82A93B80" = {}
+
+"0x828EAAD8" = {}
+
+"0x82A5E880" = {}
+
+"0x82A93B68" = {}
+
+"0x829F4530" = {}
+
+"0x826B3208" = {}
+
+"0x826AF2C0" = {}
+
+"0x826AF2A8" = {}
+
+"0x826B1500" = {}
+
+"0x82E59978" = {}
+
+"0x826C8F00" = {}
+
+"0x826AE7B0" = {}
+
+"0x826B28A0" = {}
+
+"0x826B2928" = {}
+
+"0x826C8C28" = {}
