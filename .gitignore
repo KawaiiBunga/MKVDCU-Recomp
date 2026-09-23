@@ -19,8 +19,9 @@
 /targets/*/reports/
 /work/
 
-# Local SDK / build products.
-/references/
+# Keep the pinned SDK submodule; other reference checkouts stay local.
+/references/*
+!/references/rexglue-sdk/
 /dist/
 /build/
 /switch/toolchain-test/build/

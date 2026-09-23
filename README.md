@@ -25,6 +25,7 @@ Tested on one PC: the game boots, plays full Arcade matches with a controller an
 | `targets/mkvsdcu/private/rexglue-host/` | The PC host: CMake project, F1 menu, telemetry, mod loader, and the function list for the supported XEX |
 | `launcher/MKVDCU.Launcher/` | The Windows launcher (WPF, .NET 8) |
 | `scripts/` | Build and run from a checkout, benchmark, make releases |
+| `references/rexglue-sdk/` | Pinned SDK source submodule; port patches live in `patches/rexglue-sdk/` |
 | `mods/index.json` | The mod list the launcher offers |
 | `docs/` | Player guides, build notes, releasing |
 

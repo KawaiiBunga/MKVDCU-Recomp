@@ -172,6 +172,10 @@ void WritePortConfig(const std::filesystem::path& path,
   std::map<std::string, std::string> entries;
   for (const auto& name : rex::cvar::ListFlags()) {
     if (rex::cvar::GetFlagSource(name) != rex::cvar::Source::kRuntime) continue;
+    // The port derives these SDK cvars at startup from port_render_mode.
+    // Preserve any older values already in the file for "Existing scale".
+    if (name == "resolution_scale" || name == "draw_resolution_scale_x" ||
+        name == "draw_resolution_scale_y") continue;
     const auto* flag = rex::cvar::GetFlagInfo(name);
     if (!flag || flag->type == rex::cvar::FlagType::Command) continue;
     entries[name] = rex::cvar::GetFlagByName(name);

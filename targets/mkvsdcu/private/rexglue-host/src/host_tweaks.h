@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Host-side settings that are not SDK cvars: Windows scheduling, audio mix
@@ -17,5 +19,12 @@ std::string GpuBackend();
 
 // Backends the installed GPU plugin was compiled with.
 std::vector<std::string> AvailableGpuBackends();
+
+// Resolve the port's render mode before the GPU plugin creates its caches.
+// "legacy" leaves the SDK's existing resolution_scale configuration intact.
+void ApplyRenderMode();
+
+// Effective X/Y factors, including an old SDK resolution_scale setting.
+std::pair<uint32_t, uint32_t> RenderScale();
 
 }  // namespace host_tweaks

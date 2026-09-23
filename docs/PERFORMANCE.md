@@ -90,6 +90,38 @@ mean porting the whole Xenos command processor, render-target cache and shader
 translator, so it is out of scope. Vulkan covers the cases where OpenGL would
 help, such as driver workarounds.
 
+## Render scale cost (2026-09-23)
+
+The SDK's render scale is an integer factor on each axis. Full 2x processes
+four times as many pixels as 1x; full 3x processes nine times as many. The new
+F1 > Display > Render scale choices include **2x width** and **2x height**.
+Each doubles the pixels rather than quadrupling them. The F2 overlay shows the
+actual internal width and height, including for settings saved by an older
+version. Use the existing Upscaling setting to scale the result to the window.
+
+The following are unlocked 85 s attract-loop runs at a 1280x720 window on the
+GTX 1650 SUPER. Averages include only seconds with GPU utilization at least
+90%, to omit movie and asset-loading segments. These are useful throughput
+comparisons, not controlled image-quality comparisons or a prediction for
+every fight.
+
+| Internal scale | Pixel work vs 1x | GPU-bound rows | Average FPS | VRAM used |
+| --- | ---: | ---: | ---: | ---: |
+| Full 2x | 4x | 21 | 53.5 | 1115 MB |
+| Full 2x, MSAA/gamma/aniso off | 4x | 49 | 50.0 | - |
+| 2x width, 1x height | 2x | 45 | 79.6 | 736 MB |
+| 2x width through the new menu flag | 2x | 59 | 73.9 | 783 MB |
+
+The MSAA/gamma/filtering changes did not help this GPU, so the menu leaves
+their accuracy defaults alone. The one-axis mode improves throughput by
+roughly half over full 2x in this sample, with less detail on the unscaled
+axis. Full 2x and 3x remain available when image quality and GPU headroom
+justify their cost. Existing `resolution_scale` values in `mkvsdcu.toml`
+continue to work through the **Existing scale** choice.
+
+A 55 s smoke run of **2x width + FSR 1 at a 1920x1080 window** completed at
+59.9 FPS over the last 25 s, with 72% GPU use and no hitches on the same PC.
+
 ## Frame timing
 
 - The simulation advances once per presented frame. With the guest vblank

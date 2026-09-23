@@ -6,7 +6,7 @@ Players don't need any of this; the launcher does it (see [Getting started](GETT
 
 | Component | Version or location |
 | --- | --- |
-| ReXGlue SDK | `c94f5ebdcb3c9d1a460ca48e04f9758448f8d518` (`0.10.0-dev`), checked out at `references/rexglue-sdk/` and installed to `out/install/win-amd64` (built with `-DREXGLUE_USE_VULKAN=ON -DREXGLUE_ENABLE_FIDELITYFX=ON`) |
+| ReXGlue SDK | Pinned Git submodule at `references/rexglue-sdk/` (`0.10.0-dev`), with this port's changes in `patches/rexglue-sdk/sdk.patch` |
 | Compiler | LLVM/Clang 22.1.8, CMake 4.x, Ninja |
 | Microsoft | Visual Studio 2022 or Build Tools with MSVC v143 and a Windows 11 SDK (headers and libraries only; clang does the compiling) |
 | Game | A retail dump staged at `user-game-files/work/mkvsdcu/` (`scripts/stage-game-data.ps1 "<dump>"`) |
@@ -16,9 +16,22 @@ The supported `default.xex` is title `4D5707E9`, media `6153914C`, version `0.0.
 ## Build and run
 
 ```powershell
+git submodule update --init --recursive
+.\scripts\build-sdk.ps1 -Parallel 12
 .\scripts\build-pc.ps1 -Parallel 12
 .\scripts\run-pc.ps1
 ```
+
+`build-sdk.ps1` applies the tracked SDK patch, builds the pinned SDK with D3D12, Vulkan, FidelityFX, profiling and Tracy, and installs it to `references/rexglue-sdk/out/install/win-amd64`. It rejects SDK source edits that are absent from `sdk.patch`, so a release cannot silently contain an uncommitted renderer change. The release script invokes it before packaging the install. The updater distributes the resulting SDK binaries in the versioned port zip; players do not clone the submodule.
+
+To change SDK code, edit `references/rexglue-sdk/`, then export the whole source diff to `patches/rexglue-sdk/sdk.patch` and commit that patch in this repository. For a new SDK source file, use `git -C references/rexglue-sdk add -N <path>` so it appears in `git diff`. On Windows, this command writes the patch without PowerShell changing its encoding:
+
+```powershell
+python -c "import pathlib,subprocess; pathlib.Path('patches/rexglue-sdk/sdk.patch').write_bytes(subprocess.check_output(['git','-C','references/rexglue-sdk','diff','--binary','HEAD','--']))"
+```
+
+Keep the SDK gitlink at the pinned revision while working with patches. To move to a newer SDK, update the submodule revision, regenerate the patch against that revision, and commit both the gitlink and patch. Test the installed SDK and game before publishing a new release.
+Git may show `m` beside the SDK submodule after the patch is applied; that is expected because the pinned upstream checkout contains the port patch. Commit the parent repository's `.gitmodules`, SDK gitlink, patch and scripts. Then run `scripts/release.ps1 -Version <version> -Publish` to publish an update; the launcher checks versioned GitHub releases, so a commit by itself does not trigger a player update.
 
 `build-pc.ps1` checks the XEX hash, writes a local manifest for the game folder, runs ReXGlue codegen when its inputs changed, configures the release preset and builds `out/build/win-amd64-release/mkvsdcu.exe`. `run-pc.ps1` starts it windowed with separate user and cache folders and a new log.
 
@@ -47,5 +60,5 @@ Useful launch flags (all settable in `mkvsdcu.toml` too):
 ## Notes
 
 - A full codegen pass reports function `0x82F0F908` over the 1 MiB per-file threshold. It is harmless.
-- The SDK checkout needs a Windows-only `libmspack` source fix (cabextract symlinks become text files), and FidelityFX's `ffx_api_dll.rc` must be UTF-8 for `llvm-rc`. Both are local SDK changes; no game logic is patched.
+- The tracked SDK patch uses libmspack's canonical source path because cabextract symlinks can become text files on Windows. `build-sdk.ps1` converts FidelityFX's fetched resource from UTF-16LE to UTF-8 for `llvm-rc`.
 - The host `CMakeLists.txt` restores `-O3 -DNDEBUG` if a CMake cache ever loses its release flags. An unoptimised build runs the intro movies at 5 FPS.

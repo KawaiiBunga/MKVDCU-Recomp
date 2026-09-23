@@ -29,6 +29,8 @@ $hostRel = 'targets\mkvsdcu\private\rexglue-host'
 $sdkRel = 'references\rexglue-sdk\out\install\win-amd64'
 $xexHash = '2955F2E2BE61EC1948CD2FD3538AD45BEB04772F5EBD5E0FB1BFDE484748E5A7'
 
+& (Join-Path $PSScriptRoot 'build-sdk.ps1')
+
 if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
@@ -45,6 +47,7 @@ if ($dirty) { Write-Warning "Uncommitted changes under $hostRel are included in 
 # ---- Port package ------------------------------------------------------------
 $sdk = Join-Path $root $sdkRel
 if (-not (Test-Path -LiteralPath (Join-Path $sdk 'bin\rexglue.exe'))) { throw "ReXGlue SDK install missing: $sdk" }
+$sdkStamp = Get-Content -LiteralPath (Join-Path $sdk 'mkvdcu-sdk-build.json') -Raw | ConvertFrom-Json
 $staging = Join-Path $out '_port'
 $hostDir = Join-Path $root $hostRel
 Get-ChildItem -LiteralPath $hostDir -Recurse -File | Where-Object {
@@ -60,8 +63,7 @@ foreach ($required in @('CMakeLists.txt', 'config\mkvsdcu_functions.toml', 'conf
 }
 Copy-Item -LiteralPath $sdk -Destination (Join-Path $staging $sdkRel) -Recurse
 Copy-Item -LiteralPath (Join-Path $root 'references\rexglue-sdk\LICENSE') -Destination (Join-Path $staging 'references\rexglue-sdk\LICENSE')
-$sdkRevision = (& git -C (Join-Path $root 'references\rexglue-sdk') rev-parse HEAD 2>$null)
-[ordered]@{ version = $Version; sdkRevision = "$sdkRevision"; xexSha256 = $xexHash } | ConvertTo-Json |
+[ordered]@{ version = $Version; sdkRevision = $sdkStamp.sdkRevision; sdkPatchSha256 = $sdkStamp.patchSha256; xexSha256 = $xexHash } | ConvertTo-Json |
     Set-Content -LiteralPath (Join-Path $staging 'port.json') -Encoding ASCII
 $portZip = Join-Path $out "mkvdcu-port-$Version.zip"
 [IO.Compression.ZipFile]::CreateFromDirectory($staging, $portZip, [IO.Compression.CompressionLevel]::Optimal, $false)

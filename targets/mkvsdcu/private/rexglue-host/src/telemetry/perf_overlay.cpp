@@ -7,6 +7,8 @@
 #include <imgui.h>
 #include <rex/cvar.h>
 
+#include "host_tweaks.h"
+
 REXCVAR_DEFINE_BOOL(port_perf_overlay, false, "Port/Overlay", "Show the performance overlay");
 REXCVAR_DEFINE_BOOL(port_perf_detail, false, "Port/Overlay",
                     "Show the detailed performance panel instead of the compact bar");
@@ -71,7 +73,8 @@ void Heading(const char* text) {
 }
 
 int ScaleSetting() {
-  return std::max(1, rex::cvar::Query<int32_t>("resolution_scale"));
+  const auto [x, y] = host_tweaks::RenderScale();
+  return int(std::max(x, y));
 }
 }  // namespace
 
@@ -270,7 +273,7 @@ void PerfOverlay::DrawDetailed(ImGuiIO& io, const telemetry::FrameStats& frames,
 
   Heading("RESOLUTION");
   const telemetry::GuestOutputSize size = telemetry::LastGuestOutputSize();
-  const int scale = ScaleSetting();
+  const auto [scale_x, scale_y] = host_tweaks::RenderScale();
   Label("Game output");
   if (size.width) {
     ImGui::Text("%u x %u", size.width, size.height);
@@ -278,7 +281,8 @@ void PerfOverlay::DrawDetailed(ImGuiIO& io, const telemetry::FrameStats& frames,
     ImGui::TextColored(kLabel, "waiting for the first frame");
   }
   Label("Internal render");
-  ImGui::Text("%u x %u  (%dx scale)", size.width * scale, size.height * scale, scale);
+  ImGui::Text("%u x %u  (%ux by %uy)", size.width * scale_x, size.height * scale_y,
+              scale_x, scale_y);
   if (host_->window_info) {
     const PortWindowInfo window = host_->window_info();
     Label("Window");
@@ -286,7 +290,7 @@ void PerfOverlay::DrawDetailed(ImGuiIO& io, const telemetry::FrameStats& frames,
                 window.fullscreen ? "borderless fullscreen" : "windowed");
     if (size.height && window.height) {
       Label("Presented at");
-      ImGui::Text("%.2fx the internal height", double(window.height) / (size.height * scale));
+      ImGui::Text("%.2fx the internal height", double(window.height) / (size.height * scale_y));
     }
   }
 

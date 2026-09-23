@@ -10,10 +10,15 @@
 
 #include <rex/audio/downmix.h>
 #include <rex/cvar.h>
+#include <rex/logging.h>
 
 REXCVAR_DEFINE_STRING(port_gpu_backend, "d3d12", "Port/System",
                       "Graphics backend: d3d12 or vulkan")
     .allowed({"d3d12", "vulkan"})
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+REXCVAR_DEFINE_STRING(port_render_mode, "legacy", "Port/Graphics",
+                      "Internal render scale: legacy, native, wide_2x, tall_2x, 2x or 3x")
+    .allowed({"legacy", "native", "wide_2x", "tall_2x", "2x", "3x"})
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_BOOL(port_timer_resolution, true, "Port/System",
                     "Ask Windows for 1 ms timer resolution so the guest vblank thread wakes "
@@ -35,6 +40,51 @@ REXCVAR_DEFINE_INT32(port_audio_lfe, 0, "Port/Audio", "Subwoofer (LFE) level in 
     .range(0, 100);
 
 namespace host_tweaks {
+void ApplyRenderMode() {
+  const std::string mode = REXCVAR_GET(port_render_mode);
+  if (mode == "legacy") return;
+
+  // Explicit SDK scale launch flags are useful for benchmarking and take
+  // precedence over the saved menu choice.
+  const auto mode_source = rex::cvar::GetFlagSource("port_render_mode");
+  if (mode_source != rex::cvar::Source::kCommandLine &&
+      mode_source != rex::cvar::Source::kEnvironment) {
+    for (const char* name : {"resolution_scale", "draw_resolution_scale_x",
+                             "draw_resolution_scale_y"}) {
+      const auto source = rex::cvar::GetFlagSource(name);
+      if (source == rex::cvar::Source::kCommandLine ||
+          source == rex::cvar::Source::kEnvironment) return;
+    }
+  }
+
+  const int x = mode == "wide_2x" || mode == "2x" ? 2 : mode == "3x" ? 3 : 1;
+  const int y = mode == "tall_2x" || mode == "2x" ? 2 : mode == "3x" ? 3 : 1;
+  // The SDK's shared scale overrides an axis left at its default. Clear it
+  // before setting the independent axes, including when migrating a saved 2x.
+  const bool applied = rex::cvar::SetFlagByName("resolution_scale", "1") &&
+                       rex::cvar::SetFlagByName("draw_resolution_scale_x", std::to_string(x)) &&
+                       rex::cvar::SetFlagByName("draw_resolution_scale_y", std::to_string(y));
+  if (applied) {
+    REXLOG_INFO("Render mode {}: {}x by {}x internal scale", mode, x, y);
+  } else {
+    REXLOG_WARN("Could not apply render mode {}", mode);
+  }
+}
+
+std::pair<uint32_t, uint32_t> RenderScale() {
+  // Match TextureCache::GetConfigDrawResolutionScale in the pinned SDK.
+  const auto clamp = [](int32_t value) { return uint32_t(std::clamp(value, 1, 7)); };
+  const uint32_t shared = clamp(rex::cvar::Query<int32_t>("resolution_scale"));
+  const bool use_shared = rex::cvar::HasNonDefaultValue("resolution_scale");
+  const uint32_t x = use_shared && !rex::cvar::HasNonDefaultValue("draw_resolution_scale_x")
+                         ? shared
+                         : clamp(rex::cvar::Query<int32_t>("draw_resolution_scale_x"));
+  const uint32_t y = use_shared && !rex::cvar::HasNonDefaultValue("draw_resolution_scale_y")
+                         ? shared
+                         : clamp(rex::cvar::Query<int32_t>("draw_resolution_scale_y"));
+  return {x, y};
+}
+
 namespace {
 constexpr const char* kWatched[] = {"port_timer_resolution", "port_process_priority",
                                     "port_power_throttling", "port_audio_volume",

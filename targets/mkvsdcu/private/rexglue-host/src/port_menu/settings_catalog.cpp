@@ -116,10 +116,17 @@ std::vector<Group> Build() {
   }});
 
   groups.push_back({"DISPLAY", "RESOLUTION", {
-      {"resolution_scale", "Render scale",
-       "Renders at a multiple of 720p. Higher is sharper and costs GPU time.", kRestart,
-       Kind::kSegmented, {{"1", "1x"}, {"2", "2x"}, {"3", "3x"}}},
-      {"present_effect", "Upscaling", "How the picture is scaled to your window.", kRestart,
+      {"port_render_mode", "Render scale",
+       "Full 2x renders 4 times the pixels; full 3x renders 9 times. Wide and tall 2x "
+       "render only twice the pixels, sharpening one axis. Existing keeps a scale "
+       "saved by an older version or set in the config file.",
+       kRestart, Kind::kChoice,
+       {{"legacy", "Existing scale"}, {"native", "1x (fastest)"},
+        {"wide_2x", "2x width (2x pixels)"}, {"tall_2x", "2x height (2x pixels)"},
+        {"2x", "Full 2x (4x pixels)"}, {"3x", "Full 3x (9x pixels)"}}},
+      {"present_effect", "Upscaling",
+       "How the picture is scaled to your window. Try AMD FSR 1 with a one-axis "
+       "render mode and compare its image with bilinear.", kRestart,
        Kind::kChoice, EffectChoices()},
       {"present_cas_additional_sharpness", "Sharpness", "Extra sharpening for AMD CAS.", kRestart,
        Kind::kPercent, {}, 0, 100, nullptr,

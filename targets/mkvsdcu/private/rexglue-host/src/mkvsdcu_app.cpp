@@ -57,6 +57,9 @@ void MkvsdcuApp::OnPreSetup(rex::RuntimeConfig& config) {
   if (!config.graphics && !plugin.empty()) {
     config.graphics = rex::system::LoadGpuPlugin(plugin, host_tweaks::GpuBackend());
   }
+  // The plugin registers its scale cvars when loaded. Set both axes before
+  // the graphics system allocates render targets and translates shaders.
+  host_tweaks::ApplyRenderMode();
 
   config.input_factory = [this](bool tool_mode) -> std::unique_ptr<rex::system::IInputSystem> {
     return port_input::CreateInputSystem(tool_mode, [this] {

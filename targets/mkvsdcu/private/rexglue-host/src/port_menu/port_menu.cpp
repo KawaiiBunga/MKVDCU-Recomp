@@ -15,6 +15,7 @@
 #include <imgui_internal.h>
 #include <rex/cvar.h>
 
+#include "host_tweaks.h"
 #include "input/controller_filter.h"
 #include "port_menu/port_config.h"
 #include "telemetry/frame_telemetry.h"
@@ -646,12 +647,12 @@ void PortMenuDialog::DrawTab(const char* tab) {
   }
   if (name == "DISPLAY") {
     const telemetry::GuestOutputSize size = telemetry::LastGuestOutputSize();
-    const int scale = std::max(1, std::atoi(running_["resolution_scale"].c_str()));
+    const auto [scale_x, scale_y] = host_tweaks::RenderScale();
     const PortWindowInfo window = host_->window_info ? host_->window_info() : PortWindowInfo{};
     ImGui::Dummy(ImVec2(0, 4));
     if (size.width) {
       ImGui::TextColored(kDim, "Game %u x %u    Rendering %u x %u    Window %u x %u", size.width,
-                         size.height, size.width * scale, size.height * scale, window.width,
+                         size.height, size.width * scale_x, size.height * scale_y, window.width,
                          window.height);
     }
   }
