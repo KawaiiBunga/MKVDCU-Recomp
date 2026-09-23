@@ -11,6 +11,7 @@
 !/targets/mkvsdcu/private/rexglue-host/config/
 /targets/mkvsdcu/private/rexglue-host/config/*
 !/targets/mkvsdcu/private/rexglue-host/config/mkvsdcu_functions.toml
+!/targets/mkvsdcu/private/rexglue-host/config/mkvsdcu_codegen.toml
 !/targets/mkvsdcu/private/rexglue-host/generated/
 /targets/mkvsdcu/private/rexglue-host/generated/*
 !/targets/mkvsdcu/private/rexglue-host/generated/rexglue.cmake

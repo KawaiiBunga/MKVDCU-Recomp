@@ -1,0 +1,19 @@
+# Code generation options for the recompiled game.
+#
+# Keep these PowerPC registers in C++ locals instead of the shared context
+# struct, so the compiler can hold them in host registers across a function.
+# They are either caller-saved or reserved, so the change is invisible to
+# callers.
+#
+# Off on purpose:
+# - non_argument_as_local (r0/r2/r11/r12 as locals) crashed at startup with a
+#   guest read of 0x34 on the main thread (2026-09-23). Likely cause: the
+#   game's __savegprlr_N helpers read the saved LR from ctx.r12.
+# - skip_lr and non_volatile_as_local break code that uses setjmp/longjmp
+#   unless those are mapped.
+# See docs/PERFORMANCE.md for measurements.
+ctr_as_local = true
+xer_as_local = true
+reserved_as_local = true
+cr_as_local = true
+non_argument_as_local = false

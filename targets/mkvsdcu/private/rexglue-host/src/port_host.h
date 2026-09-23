@@ -22,6 +22,7 @@ struct PortHost {
   std::filesystem::path log_dir;
   telemetry::SystemSampler* sampler = nullptr;
   telemetry::GuestProfiler* profiler = nullptr;
+  size_t mods_loaded = 0;
   std::function<PortWindowInfo()> window_info;
   // Resizes the client area of a windowed game window; runs on the UI thread.
   std::function<void(uint32_t width, uint32_t height)> resize_window;

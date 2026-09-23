@@ -4,25 +4,37 @@
 #include <cmath>
 #include <cstring>
 #include <iterator>
-#include <thread>
 
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <shellapi.h>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <rex/cvar.h>
 
 #include "input/controller_filter.h"
 #include "port_menu/port_config.h"
-#include "port_menu/settings_catalog.h"
 #include "telemetry/frame_telemetry.h"
 #include "telemetry/guest_profiler.h"
 #include "telemetry/perf_overlay.h"
 #include "telemetry/system_telemetry.h"
 
+REXCVAR_DEFINE_INT32(port_debug_menu_cycle, 0, "Port/Debug",
+                     "Developer aid: open the menu at startup and switch tabs every N seconds")
+    .range(0, 60);
+
 namespace {
+using settings_catalog::Apply;
+using settings_catalog::Setting;
+using Kind = Setting::Kind;
+
+constexpr const char* kTabs[] = {"DISPLAY", "GRAPHICS",   "CONTROLS", "AUDIO",
+                                 "PERFORMANCE", "ADVANCED", "ABOUT"};
+constexpr int kTabCount = int(std::size(kTabs));
+
 constexpr ImU32 kRed = IM_COL32(142, 59, 55, 255);
 constexpr ImU32 kBlue = IM_COL32(55, 82, 106, 255);
 constexpr ImVec4 kBrass(0.73f, 0.64f, 0.49f, 1.0f);
@@ -30,50 +42,36 @@ constexpr ImVec4 kWarning(0.85f, 0.50f, 0.38f, 1.0f);
 constexpr ImVec4 kError(0.92f, 0.38f, 0.34f, 1.0f);
 constexpr ImVec4 kOk(0.55f, 0.72f, 0.56f, 1.0f);
 constexpr ImVec4 kSelected(0.58f, 0.40f, 0.27f, 1.0f);
+constexpr ImVec4 kDim(0.60f, 0.60f, 0.58f, 1.0f);
 
-// Settings drawn by custom widgets that the running game picks up as soon as
-// their cvar changes. The catalog adds its own (settings_catalog.cpp).
-constexpr const char* kMenuLiveKeys[] = {
-    "fullscreen",        "window_width",      "window_height",        "present_letterbox",
-    "vsync",             "anisotropic_override", "async_shader_compilation", "mnk_mode",
-    "keybind_a",         "keybind_b",         "keybind_x",            "keybind_y",
-    "pad_left_deadzone", "pad_right_deadzone", "pad_trigger_deadzone", "pad_vibration",
-    "pad_stick_to_dpad", "pad_menu_chord",    "pad_map_a",            "pad_map_b",
-    "pad_map_x",         "pad_map_y",         "pad_map_lb",           "pad_map_rb",
-    "pad_map_lt",        "pad_map_rt",        "port_perf_overlay",    "port_perf_detail",
-    "port_perf_corner"};
-// Custom-widget settings only read while the game starts.
-constexpr const char* kMenuRestartKeys[] = {"resolution_scale", "swap_post_effect",
-                                            "video_mode_refresh_rate",
-                                            "d3d12_allow_variable_refresh_rate_and_tearing",
-                                            "monitor"};
+constexpr float kControlWidth = 320.0f;
+
+// Saved alongside the catalog but edited by custom rows.
+constexpr const char* kExtraLiveKeys[] = {"window_width", "window_height", "keybind_a",
+                                          "keybind_b",    "keybind_x",     "keybind_y"};
+constexpr const char* kKeyFlags[] = {"keybind_a", "keybind_b", "keybind_x", "keybind_y"};
+constexpr const char* kKeyLabels[] = {"A key", "B key", "X key", "Y key"};
+
+constexpr std::pair<uint32_t, uint32_t> kWindowSizes[] = {
+    {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3200, 1800}, {3840, 2160}};
 
 std::vector<const char*> LiveKeys() {
-  std::vector<const char*> keys(std::begin(kMenuLiveKeys), std::end(kMenuLiveKeys));
-  for (const char* name : settings_catalog::LiveCvars()) keys.push_back(name);
+  std::vector<const char*> keys = settings_catalog::LiveCvars();
+  keys.insert(keys.end(), std::begin(kExtraLiveKeys), std::end(kExtraLiveKeys));
   return keys;
 }
-
-std::vector<const char*> RestartKeys() {
-  std::vector<const char*> keys(std::begin(kMenuRestartKeys), std::end(kMenuRestartKeys));
-  for (const char* name : settings_catalog::RestartCvars()) keys.push_back(name);
-  return keys;
-}
-
-constexpr const char* kKeyFlags[] = {"keybind_a", "keybind_b", "keybind_x", "keybind_y"};
-constexpr const char* kKeyLabels[] = {"A button", "B button", "X button", "Y button"};
-constexpr const char* kPadLabels[] = {"A button", "B button", "X button", "Y button",
-                                      "Left bumper", "Right bumper", "Left trigger",
-                                      "Right trigger"};
 
 std::string Cvar(const char* name) {
   return rex::cvar::GetFlagByName(name);
 }
-bool CvarBool(const char* name) {
-  return Cvar(name) == "true";
-}
-int CvarInt(const char* name) {
-  return rex::cvar::Query<int32_t>(name);
+
+// Doubles print as "60.000000" or "60" depending on where they came from.
+bool SameValue(const char* name, const std::string& a, const std::string& b) {
+  if (a == b) return true;
+  const auto* flag = rex::cvar::GetFlagInfo(name);
+  if (!flag || flag->type != rex::cvar::FlagType::Double) return false;
+  double x = 0, y = 0;
+  return rex::cvar::ParseDouble(a, x) && rex::cvar::ParseDouble(b, y) && std::abs(x - y) < 1e-6;
 }
 
 // Same conversion rex::cvar::LoadConfig applies to a TOML value.
@@ -85,86 +83,22 @@ std::optional<std::string> NodeString(const toml::node& node) {
   return std::nullopt;
 }
 
-std::string AntiAliasingName(const std::string& value) {
-  if (value == "fxaa") return "FXAA";
-  if (value == "fxaa_extreme") return "FXAA extreme";
-  return "Off";
-}
-
-std::string RefreshName(const std::string& value) {
-  double hz = 60;
-  rex::cvar::ParseDouble(value, hz);
-  char text[32];
-  std::snprintf(text, sizeof(text), "%.0f Hz", hz);
-  return text;
-}
-
-std::string MonitorName(int index) {
-  if (index <= 0) return "Automatic";
-  if (index == 1) return "Primary display";
-  return "Display " + std::to_string(index);
-}
-
-constexpr std::pair<int, const char*> kAnisotropic[] = {
-    {-1, "Game default"}, {0, "Off"}, {1, "1x"}, {2, "2x"}, {3, "4x"}, {4, "8x"}, {5, "16x"}};
-
-constexpr std::pair<uint32_t, uint32_t> kWindowSizes[] = {
-    {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3200, 1800}, {3840, 2160}};
-
-void Group(const char* title, const char* detail, const ImVec4& color) {
-  ImGui::Dummy(ImVec2(0, 2));
-  ImGui::TextColored(color, "%s", title);
-  if (detail) {
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", detail);
+std::string ChoiceLabel(const Setting& setting, const std::string& value) {
+  for (const auto& choice : setting.choices) {
+    if (SameValue(setting.cvar, choice.value, value)) return choice.label;
   }
+  return value.empty() ? "Automatic" : value;
+}
+
+void GroupTitle(const char* title) {
+  ImGui::Dummy(ImVec2(0, 6));
+  ImGui::TextColored(kBrass, "%s", title);
   ImGui::Separator();
 }
 
-void Live() {
-  Group("APPLIES NOW", "Takes effect immediately.", kOk);
-}
-void NextLaunch() {
-  ImGui::Dummy(ImVec2(0, 8));
-  Group("NEXT LAUNCH", "Saved now, used after you restart the game.", kWarning);
-}
-
-bool BeginRows(const char* id) {
-  if (!ImGui::BeginTable(id, 2, ImGuiTableFlags_None)) return false;
-  ImGui::TableSetupColumn("setting", ImGuiTableColumnFlags_WidthStretch);
-  ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthFixed, 320.0f);
-  return true;
-}
-
-void Hint(const char* text, const ImVec4* color = nullptr) {
-  ImGui::PushStyleColor(ImGuiCol_Text,
-                        color ? *color : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-  ImGui::TextWrapped("%s", text);
-  ImGui::PopStyleColor();
-}
-
-void Row(const char* label, const char* hint) {
-  ImGui::TableNextRow();
-  ImGui::TableNextColumn();
-  ImGui::Dummy(ImVec2(0, 4));
-  ImGui::TextUnformatted(label);
-  if (hint) Hint(hint);
-  ImGui::TableNextColumn();
-  ImGui::Dummy(ImVec2(0, 4));
-  ImGui::SetNextItemWidth(-FLT_MIN);
-}
-
-void RestartState(const std::string& running, const std::string& next) {
-  if (running == next) {
-    ImGui::TextDisabled("In use now");
-  } else {
-    const std::string text = "Now " + running + ". " + next + " after restart.";
-    Hint(text.c_str(), &kWarning);
-  }
-}
-
-bool Segmented(const char* id, int& index, const char* const* labels, int count) {
+bool Segmented(const char* id, int& index, const std::vector<std::string>& labels) {
   bool changed = false;
+  const int count = int(labels.size());
   ImGui::PushID(id);
   const float spacing = ImGui::GetStyle().ItemSpacing.x * 0.5f;
   const float width = (ImGui::GetContentRegionAvail().x - spacing * (count - 1)) / count;
@@ -175,7 +109,7 @@ bool Segmented(const char* id, int& index, const char* const* labels, int count)
       ImGui::PushStyleColor(ImGuiCol_Button, kSelected);
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kSelected);
     }
-    if (ImGui::Button(labels[i], ImVec2(width, 0)) && !selected) {
+    if (ImGui::Button(labels[i].c_str(), ImVec2(width, 0)) && !selected) {
       index = i;
       changed = true;
     }
@@ -185,14 +119,9 @@ bool Segmented(const char* id, int& index, const char* const* labels, int count)
   return changed;
 }
 
-BOOL CALLBACK CountMonitor(HMONITOR, HDC, LPRECT, LPARAM data) {
-  ++*reinterpret_cast<int*>(data);
-  return TRUE;
-}
-
 // Stick position with its deadzone ring, as the game will see it.
-void DrawStick(const char* label, int16_t x, int16_t y, int deadzone_percent) {
-  const float radius = 30.0f;
+void DrawStick(int16_t x, int16_t y, int deadzone_percent) {
+  const float radius = 22.0f;
   const ImVec2 origin = ImGui::GetCursorScreenPos();
   const ImVec2 center(origin.x + radius + 2, origin.y + radius + 2);
   ImGui::Dummy(ImVec2(radius * 2 + 4, radius * 2 + 4));
@@ -204,11 +133,6 @@ void DrawStick(const char* label, int16_t x, int16_t y, int deadzone_percent) {
   }
   const ImVec2 dot(center.x + radius * x / 32767.0f, center.y - radius * y / 32767.0f);
   draw->AddCircleFilled(dot, 4.0f, IM_COL32(215, 190, 140, 255));
-  ImGui::SameLine();
-  ImGui::BeginGroup();
-  ImGui::TextUnformatted(label);
-  ImGui::TextDisabled("%+.2f  %+.2f", x / 32767.0f, y / 32767.0f);
-  ImGui::EndGroup();
 }
 
 std::string PressedButtons(const port_input::PadSnapshot& pad) {
@@ -223,7 +147,7 @@ std::string PressedButtons(const port_input::PadSnapshot& pad) {
   }
   if (pad.left_trigger > 30) text += std::string(text.empty() ? "" : " ") + "LT";
   if (pad.right_trigger > 30) text += std::string(text.empty() ? "" : " ") + "RT";
-  return text.empty() ? "none" : text;
+  return text;
 }
 
 struct StyleColor {
@@ -260,13 +184,13 @@ constexpr StyleColor kPalette[] = {
 PortMenuDialog::PortMenuDialog(rex::ui::ImGuiDrawer* drawer, const PortHost* host,
                                std::function<void()> on_closed)
     : ImGuiDialog(drawer), host_(host), on_closed_(std::move(on_closed)) {
-  EnumDisplayMonitors(nullptr, nullptr, CountMonitor, reinterpret_cast<LPARAM>(&monitor_count_));
-  monitor_count_ = std::max(monitor_count_, 1);
   // A button still held from the chord that opened the menu is not a press.
   const auto pads = port_input::ConnectedPads();
   if (!pads.empty()) last_pad_buttons_ = pads.front().buttons;
   if (host_->sampler) host_->sampler->SetWanted("menu", true);
   Load();
+  for (const char* name : LiveKeys()) open_live_[name] = Cvar(name);
+  open_next_ = next_;
 }
 
 PortMenuDialog::~PortMenuDialog() {
@@ -283,17 +207,14 @@ void PortMenuDialog::Load() {
     std::memcpy(keys_[i], value.data(), count);
     keys_[i][count] = 0;
   }
-  saved_live_.clear();
-  for (const char* name : LiveKeys()) saved_live_.emplace_back(name, Cvar(name));
-
   running_.clear();
   next_.clear();
-  for (const char* name : RestartKeys()) {
+  for (const char* name : settings_catalog::RestartCvars()) {
     running_[name] = Cvar(name);
     next_[name] = running_[name];
   }
   if (const auto config = ReadPortConfig(host_->config_path)) {
-    for (const char* name : RestartKeys()) {
+    for (const char* name : settings_catalog::RestartCvars()) {
       if (const auto* node = config->get(name)) {
         if (auto value = NodeString(*node)) next_[name] = *value;
       }
@@ -302,9 +223,15 @@ void PortMenuDialog::Load() {
   dirty_ = false;
 }
 
+std::string PortMenuDialog::ValueOf(const char* name) const {
+  if (const auto it = next_.find(name); it != next_.end()) return it->second;
+  return Cvar(name);
+}
+
 void PortMenuDialog::SetLive(const char* name, const std::string& value) {
   if (rex::cvar::SetFlagByName(name, value)) {
     dirty_ = true;
+    save_due_ = ImGui::GetTime() + 0.6;
     if (status_error_) status_.clear();
     status_error_ = false;
   } else {
@@ -317,6 +244,18 @@ void PortMenuDialog::SetNext(const char* name, const std::string& value) {
   if (next_[name] == value) return;
   next_[name] = value;
   dirty_ = true;
+  save_due_ = ImGui::GetTime() + 0.6;
+}
+
+void PortMenuDialog::Set(const Setting& setting, const std::string& value) {
+  if (setting.apply == Apply::kLive) {
+    SetLive(setting.cvar, value);
+  } else {
+    SetNext(setting.cvar, value);
+  }
+  if (std::strcmp(setting.cvar, "port_perf_overlay") == 0 && host_->show_perf_overlay) {
+    host_->show_perf_overlay(value == "true");
+  }
 }
 
 bool PortMenuDialog::Save() {
@@ -325,7 +264,7 @@ bool PortMenuDialog::Save() {
     // A launch flag the player did not touch here is not a saved preference.
     const auto source = rex::cvar::GetFlagSource(name);
     if (source == rex::cvar::Source::kCommandLine || source == rex::cvar::Source::kEnvironment) {
-      continue;
+      if (Cvar(name) == open_live_[name]) continue;
     }
     if (!rex::cvar::GetFlagInfo(name)) continue;
     values.emplace_back(name, Cvar(name));
@@ -336,27 +275,34 @@ bool PortMenuDialog::Save() {
   try {
     WritePortConfig(host_->config_path, values);
   } catch (const std::exception& e) {
-    status_ = std::string("Not saved: ") + e.what();
+    status_ = std::string("Could not save settings: ") + e.what();
     status_error_ = true;
     return false;
   }
-  saved_live_.clear();
-  for (const char* name : LiveKeys()) saved_live_.emplace_back(name, Cvar(name));
   dirty_ = false;
   status_error_ = false;
   status_.clear();
+  saved_at_ = ImGui::GetTime();
   return true;
 }
 
-void PortMenuDialog::Revert() {
-  const bool overlay_was = CvarBool("port_perf_overlay");
-  for (const auto& [name, value] : saved_live_) rex::cvar::SetFlagByName(name, value);
-  if (CvarBool("port_perf_overlay") != overlay_was && host_->show_perf_overlay) {
-    host_->show_perf_overlay(CvarBool("port_perf_overlay"));
+bool PortMenuDialog::HasChangesSinceOpen() const {
+  for (const auto& [name, value] : open_live_) {
+    if (!SameValue(name.c_str(), Cvar(name.c_str()), value)) return true;
   }
+  return next_ != open_next_;
+}
+
+void PortMenuDialog::Undo() {
+  for (const auto& [name, value] : open_live_) {
+    if (!SameValue(name.c_str(), Cvar(name.c_str()), value)) SetLive(name.c_str(), value);
+  }
+  for (const auto& [name, value] : open_next_) SetNext(name.c_str(), value);
+  if (host_->show_perf_overlay) host_->show_perf_overlay(Cvar("port_perf_overlay") == "true");
   Load();
-  status_error_ = false;
-  status_ = "Changes undone.";
+  next_ = open_next_;
+  dirty_ = true;
+  save_due_ = 0;
 }
 
 void PortMenuDialog::RequestClose() {
@@ -396,354 +342,167 @@ void PortMenuDialog::FeedGamepad(ImGuiIO& io) {
   // chord that opens the menu).
   const uint16_t pressed = pad.buttons & ~last_pad_buttons_;
   last_pad_buttons_ = pad.buttons;
-  constexpr int kTabCount = 7;
   if (pressed & 0x0100) pending_tab_ = (tab_ + kTabCount - 1) % kTabCount;
   if (pressed & 0x0200) pending_tab_ = (tab_ + 1) % kTabCount;
   if ((pressed & 0x0010) && !(pad.buttons & 0x0020)) RequestClose();
 }
 
-void PortMenuDialog::DrawDisplay() {
-  Live();
-  if (BeginRows("display_live")) {
-    Row("Display mode", "Borderless fullscreen covers the display; with Direct3D 12 it presents "
-                        "as directly as exclusive fullscreen would.");
-    static const char* kModes[] = {"Windowed", "Borderless fullscreen"};
-    int mode = CvarBool("fullscreen") ? 1 : 0;
-    if (Segmented("mode", mode, kModes, 2)) SetLive("fullscreen", mode ? "true" : "false");
+bool PortMenuDialog::BeginRows(const char* id) {
+  if (!ImGui::BeginTable(id, 2, ImGuiTableFlags_None)) return false;
+  ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthStretch);
+  ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthFixed, kControlWidth);
+  row_top_ = -1;
+  return true;
+}
 
-    if (!CvarBool("fullscreen")) {
-      Row("Window size", "Client area in pixels. Also used for the next launch.");
-      const PortWindowInfo window = host_->window_info ? host_->window_info() : PortWindowInfo{};
-      const std::string current = std::to_string(window.width) + " x " + std::to_string(window.height);
-      if (ImGui::BeginCombo("##window_size", current.c_str())) {
-        const int screen_w = GetSystemMetrics(SM_CXSCREEN), screen_h = GetSystemMetrics(SM_CYSCREEN);
-        for (const auto& [w, h] : kWindowSizes) {
-          if (int(w) > screen_w || int(h) > screen_h) continue;
-          const std::string label = std::to_string(w) + " x " + std::to_string(h);
-          if (ImGui::Selectable(label.c_str(), w == window.width && h == window.height)) {
-            if (host_->resize_window) host_->resize_window(w, h);
-            SetLive("window_width", std::to_string(w));
-            SetLive("window_height", std::to_string(h));
-          }
+void PortMenuDialog::Row(const char* label, const char* help, bool restart, bool pending) {
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(0);
+  FinishRow(ImGui::GetCursorScreenPos().y);
+  row_top_ = ImGui::GetCursorScreenPos().y;
+  row_help_ = help ? help : "";
+  if (restart) row_help_ += row_help_.empty() ? "Applies after a restart." : " Applies after a restart.";
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted(label);
+  if (pending) {
+    ImGui::SameLine();
+    ImGui::TextColored(kWarning, "restart");
+  }
+  ImGui::TableSetColumnIndex(1);
+  ImGui::SetNextItemWidth(-FLT_MIN);
+}
+
+void PortMenuDialog::EndRows() {
+  ImGui::EndTable();
+  FinishRow(ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y);
+}
+
+// The help line follows the controller/keyboard cursor when it is showing,
+// otherwise the mouse.
+void PortMenuDialog::FinishRow(float bottom) {
+  if (row_top_ < 0) return;
+  const float top = row_top_;
+  row_top_ = -1;
+  if (row_help_.empty()) return;
+  // GImGui is not exported from the runtime DLL; go through the context.
+  ImGuiContext& g = *ImGui::GetCurrentContext();
+  ImGuiWindow* window = g.CurrentWindow;
+  bool active = false;
+  if (g.NavCursorVisible && g.NavId && g.NavWindow == window) {
+    const ImRect nav = ImGui::WindowRectRelToAbs(window, window->NavRectRel[g.NavLayer]);
+    const float y = nav.GetCenter().y;
+    active = y >= top && y < bottom;
+  } else if (ImGui::IsWindowHovered()) {
+    const float y = ImGui::GetIO().MousePos.y;
+    active = y >= top && y < bottom;
+  }
+  if (active) frame_help_ = row_help_;
+}
+
+void PortMenuDialog::DrawSetting(const Setting& setting) {
+  if (setting.kind == Kind::kCustom) {
+    DrawCustom(setting);
+    return;
+  }
+  const bool live = setting.apply == Apply::kLive;
+  const std::string value = live ? Cvar(setting.cvar) : next_[setting.cvar];
+  const bool pending = !live && !SameValue(setting.cvar, running_[setting.cvar], value);
+  Row(setting.label, setting.help, !live, pending);
+  ImGui::PushID(setting.cvar);
+  const auto* flag = rex::cvar::GetFlagInfo(setting.cvar);
+  const bool is_double = flag && flag->type == rex::cvar::FlagType::Double;
+  switch (setting.kind) {
+    case Kind::kBool: {
+      bool on = value == "true";
+      if (ImGui::Checkbox("##v", &on)) Set(setting, on ? "true" : "false");
+      break;
+    }
+    case Kind::kChoice:
+      if (ImGui::BeginCombo("##v", ChoiceLabel(setting, value).c_str())) {
+        for (const auto& choice : setting.choices) {
+          const bool selected = SameValue(setting.cvar, choice.value, value);
+          if (ImGui::Selectable(choice.label.c_str(), selected) && !selected) Set(setting, choice.value);
         }
         ImGui::EndCombo();
       }
+      break;
+    case Kind::kSegmented: {
+      int index = -1;
+      std::vector<std::string> labels;
+      for (size_t i = 0; i < setting.choices.size(); ++i) {
+        labels.push_back(setting.choices[i].label);
+        if (SameValue(setting.cvar, setting.choices[i].value, value)) index = int(i);
+      }
+      if (Segmented("##v", index, labels)) Set(setting, setting.choices[index].value);
+      break;
     }
-
-    Row("Keep 16:9", "Black bars instead of stretching when the window has another shape.");
-    bool letterbox = CvarBool("present_letterbox");
-    if (ImGui::Checkbox("##letterbox", &letterbox)) SetLive("present_letterbox", letterbox ? "true" : "false");
-    ImGui::EndTable();
+    case Kind::kInt: {
+      int number = std::atoi(value.c_str());
+      if (ImGui::SliderInt("##v", &number, setting.min, setting.max)) Set(setting, std::to_string(number));
+      break;
+    }
+    case Kind::kPercent: {
+      double number = 0;
+      rex::cvar::ParseDouble(value, number);
+      int percent = int(std::lround(is_double ? number * 100 : number));
+      if (ImGui::SliderInt("##v", &percent, setting.min, setting.max, "%d%%")) {
+        Set(setting, is_double ? std::to_string(percent / 100.0) : std::to_string(percent));
+      }
+      break;
+    }
+    case Kind::kCustom:
+      break;
   }
+  ImGui::PopID();
+}
 
-  NextLaunch();
-  if (BeginRows("display_restart")) {
-    Row("Display", "Which monitor the game opens on.");
-    const int next_monitor = std::atoi(next_["monitor"].c_str());
-    if (ImGui::BeginCombo("##monitor", MonitorName(next_monitor).c_str())) {
-      for (int i = 0; i <= monitor_count_; ++i) {
-        if (ImGui::Selectable(MonitorName(i).c_str(), i == next_monitor)) {
-          SetNext("monitor", std::to_string(i));
+void PortMenuDialog::DrawCustom(const Setting& setting) {
+  const std::string id = setting.cvar;
+  if (id == "window_size") {
+    Row(setting.label, setting.help);
+    const PortWindowInfo window = host_->window_info ? host_->window_info() : PortWindowInfo{};
+    const std::string current = std::to_string(window.width) + " x " + std::to_string(window.height);
+    if (ImGui::BeginCombo("##window_size", current.c_str())) {
+      const int screen_w = GetSystemMetrics(SM_CXSCREEN), screen_h = GetSystemMetrics(SM_CYSCREEN);
+      for (const auto& [w, h] : kWindowSizes) {
+        if (int(w) > screen_w || int(h) > screen_h) continue;
+        const std::string label = std::to_string(w) + " x " + std::to_string(h);
+        if (ImGui::Selectable(label.c_str(), w == window.width && h == window.height)) {
+          if (host_->resize_window) host_->resize_window(w, h);
+          SetLive("window_width", std::to_string(w));
+          SetLive("window_height", std::to_string(h));
         }
       }
       ImGui::EndCombo();
     }
-    RestartState(MonitorName(std::atoi(running_["monitor"].c_str())), MonitorName(next_monitor));
-
-    Row("Internal render scale",
-        "Renders at a multiple of the game's resolution. 1x is the verified default; higher "
-        "scales cost GPU time and memory.");
-    static const char* kScales[] = {"1x", "2x", "3x"};
-    int scale = std::clamp(std::atoi(next_["resolution_scale"].c_str()), 1, 3) - 1;
-    if (Segmented("scale", scale, kScales, 3)) SetNext("resolution_scale", std::to_string(scale + 1));
-    RestartState(running_["resolution_scale"] + "x", next_["resolution_scale"] + "x");
-    ImGui::EndTable();
-  }
-
-  ImGui::Dummy(ImVec2(0, 8));
-  Group("RESOLUTION", "Measured from the running game.", kBrass);
-  if (BeginRows("display_info")) {
-    const telemetry::GuestOutputSize size = telemetry::LastGuestOutputSize();
-    const int scale = std::max(1, std::atoi(running_["resolution_scale"].c_str()));
-    Row("Game output", "The image the game presents each frame.");
-    if (size.width) {
-      ImGui::Text("%u x %u", size.width, size.height);
-    } else {
-      ImGui::TextDisabled("waiting for a frame");
+  } else if (id == "reset_mapping") {
+    Row("", "Every button sends itself again.");
+    if (ImGui::Button("Reset buttons", ImVec2(-FLT_MIN, 0))) {
+      for (int i = 0; i < 8; ++i) SetLive(port_input::kMapCvars[i], port_input::kControlNames[i]);
     }
-    Row("Internal render", "Game output times the render scale in use.");
-    ImGui::Text("%u x %u", size.width * scale, size.height * scale);
-    if (host_->window_info) {
-      const PortWindowInfo window = host_->window_info();
-      Row("Window", "What the render is scaled to for display.");
-      ImGui::Text("%u x %u", window.width, window.height);
-    }
-    ImGui::EndTable();
-  }
-}
-
-void PortMenuDialog::DrawGraphics() {
-  Live();
-  if (BeginRows("graphics_live")) {
-    Row("Anisotropic filtering", "Keeps floor and wall textures sharp at steep angles.");
-    const int aniso = CvarInt("anisotropic_override");
-    const char* current = "Custom";
-    for (const auto& [value, label] : kAnisotropic) {
-      if (value == aniso) current = label;
-    }
-    if (ImGui::BeginCombo("##aniso", current)) {
-      for (const auto& [value, label] : kAnisotropic) {
-        if (ImGui::Selectable(label, value == aniso) && value != aniso) {
-          SetLive("anisotropic_override", std::to_string(value));
-        }
-      }
-      ImGui::EndCombo();
-    }
-
-    Row("Background shader compilation",
-        "Builds new shaders on worker threads so the game does not freeze on them. Objects can "
-        "be missing for a frame while that happens. Off gives exact frames with more hitches.");
-    bool async = CvarBool("async_shader_compilation");
-    if (ImGui::Checkbox("##async", &async)) SetLive("async_shader_compilation", async ? "true" : "false");
-    ImGui::EndTable();
-  }
-
-  NextLaunch();
-  if (BeginRows("graphics_restart")) {
-    Row("Anti-aliasing", "FXAA smooths jagged edges after the frame is drawn, for a small GPU "
-                         "cost. It also slightly softens the image.");
-    static const char* kAaLabels[] = {"Off", "FXAA", "FXAA extreme"};
-    static const char* kAaValues[] = {"none", "fxaa", "fxaa_extreme"};
-    int aa = 0;
-    for (int i = 0; i < 3; ++i) {
-      if (next_["swap_post_effect"] == kAaValues[i]) aa = i;
-    }
-    if (Segmented("aa", aa, kAaLabels, 3)) SetNext("swap_post_effect", kAaValues[aa]);
-    RestartState(AntiAliasingName(running_["swap_post_effect"]), AntiAliasingName(next_["swap_post_effect"]));
-    ImGui::EndTable();
-  }
-  DrawCatalog("GRAPHICS");
-}
-
-void PortMenuDialog::DrawCatalog(const char* tab) {
-  using settings_catalog::Apply;
-  using Kind = settings_catalog::Setting::Kind;
-  const std::string backend = running_.count("port_gpu_backend") ? running_["port_gpu_backend"] : "d3d12";
-
-  for (const auto& group : settings_catalog::Groups()) {
-    if (std::strcmp(group.tab, tab) != 0) continue;
-    std::vector<const settings_catalog::Setting*> visible;
-    for (const auto& setting : group.settings) {
-      if (!rex::cvar::GetFlagInfo(setting.cvar)) continue;  // not in this build
-      if (setting.backend && backend != setting.backend) continue;
-      if (setting.kind == Kind::kChoice && setting.choices.size() < 2) continue;
-      visible.push_back(&setting);
-    }
-    if (visible.empty()) continue;
-
-    ImGui::Dummy(ImVec2(0, 8));
-    Group(group.title, group.detail, kBrass);
-    if (!BeginRows(group.title)) continue;
-    for (const auto* setting : visible) {
-      const bool live = setting->apply == Apply::kLive;
-      const std::string value = live ? Cvar(setting->cvar) : next_[setting->cvar];
-      const auto set = [&](const std::string& v) {
-        if (live) {
-          SetLive(setting->cvar, v);
-        } else {
-          SetNext(setting->cvar, v);
-        }
-      };
-      const auto* flag = rex::cvar::GetFlagInfo(setting->cvar);
-      const bool is_double = flag && flag->type == rex::cvar::FlagType::Double;
-      const auto label_of = [&](const std::string& v) -> std::string {
-        switch (setting->kind) {
-          case Kind::kBool:
-            return v == "true" ? "On" : "Off";
-          case Kind::kChoice:
-            for (const auto& choice : setting->choices) {
-              if (choice.value == v) return choice.label;
-            }
-            return v.empty() ? "Automatic" : v;
-          case Kind::kPercent: {
-            double number = 0;
-            rex::cvar::ParseDouble(v, number);
-            return std::to_string(int(std::lround(is_double ? number * 100 : number))) + "%";
-          }
-          default:
-            return v;
-        }
-      };
-
-      Row(setting->label, setting->hint);
-      ImGui::PushID(setting->cvar);
-      switch (setting->kind) {
-        case Kind::kBool: {
-          bool on = value == "true";
-          if (ImGui::Checkbox("##v", &on)) set(on ? "true" : "false");
-          break;
-        }
-        case Kind::kChoice:
-          if (ImGui::BeginCombo("##v", label_of(value).c_str())) {
-            for (const auto& choice : setting->choices) {
-              if (ImGui::Selectable(choice.label.c_str(), choice.value == value)) set(choice.value);
-            }
-            ImGui::EndCombo();
-          }
-          break;
-        case Kind::kInt: {
-          int number = std::atoi(value.c_str());
-          if (ImGui::SliderInt("##v", &number, setting->min, setting->max)) set(std::to_string(number));
-          break;
-        }
-        case Kind::kPercent: {
-          double number = 0;
-          rex::cvar::ParseDouble(value, number);
-          int percent = int(std::lround(is_double ? number * 100 : number));
-          if (ImGui::SliderInt("##v", &percent, setting->min, setting->max, "%d%%")) {
-            set(is_double ? std::to_string(percent / 100.0) : std::to_string(percent));
-          }
-          break;
-        }
-      }
-      if (!live) RestartState(label_of(running_[setting->cvar]), label_of(value));
+  } else if (id == "key_bindings") {
+    for (int i = 0; i < 4; ++i) {
+      Row(kKeyLabels[i], "Key names separated by commas, for example Space or Semicolon,Space.");
+      ImGui::PushID(i);
+      ImGui::InputText("##key", keys_[i], sizeof(keys_[i]));
+      if (ImGui::IsItemDeactivatedAfterEdit()) SetLive(kKeyFlags[i], keys_[i]);
       ImGui::PopID();
     }
-    ImGui::EndTable();
-  }
-}
-
-void PortMenuDialog::DrawAudio() {
-  DrawCatalog("AUDIO");
-  ImGui::Dummy(ImVec2(0, 4));
-  Hint("The mix settings shape how the game's 5.1 output is folded into stereo. Output device "
-       "selection follows the Windows default device.");
-}
-
-void PortMenuDialog::DrawSystem() {
-  DrawCatalog("SYSTEM");
-  ImGui::Dummy(ImVec2(0, 8));
-  Group("PROCESS", nullptr, kBrass);
-  const auto system = host_->sampler ? host_->sampler->Latest() : telemetry::SystemSnapshot{};
-  if (BeginRows("process")) {
-    Row("CPU threads", nullptr);
-    ImGui::Text("%u logical", system.logical_cores ? system.logical_cores
-                                                   : std::max(1u, std::thread::hardware_concurrency()));
-    Row("Graphics", nullptr);
-    ImGui::Text("%s", system.gpu_name.empty() ? "measuring..." : system.gpu_name.c_str());
-    Row("Settings file", nullptr);
-    Hint(host_->config_path.string().c_str());
-    ImGui::EndTable();
-  }
-}
-
-void PortMenuDialog::DrawPerformance() {
-  const telemetry::FrameStats now = telemetry::ComputeFrameStats(1.0);
-  const telemetry::FrameStats recent = telemetry::ComputeFrameStats(5.0);
-  const telemetry::SystemSnapshot system =
-      host_->sampler ? host_->sampler->Latest() : telemetry::SystemSnapshot{};
-
-  Group("RIGHT NOW", "Measured at the game's own frame presentation.", kBrass);
-  ImGui::PushFont(nullptr, 30.0f);
-  ImGui::TextColored(now.fps >= 57 ? kOk : kWarning, "%.0f FPS", now.fps);
-  ImGui::PopFont();
-  ImGui::SameLine();
-  ImGui::BeginGroup();
-  ImGui::Text("%.2f ms average   1%% low %.2f ms   worst %.2f ms", recent.avg_ms, recent.p99_ms,
-              recent.max_ms);
-  ImGui::TextDisabled("guest vblank %.1f Hz   jitter %.2f ms   hitches (5 s) %u", system.vblank_hz,
-                      recent.stddev_ms, recent.hitches);
-  ImGui::EndGroup();
-  telemetry::RecentFrameTimes(frame_times_, 240);
-  DrawFrameTimeGraph(frame_times_, ImGui::GetContentRegionAvail().x, 50.0f);
-
-  ImGui::Dummy(ImVec2(0, 6));
-  Group("FRAME PACING", nullptr, kBrass);
-  if (BeginRows("pacing_live")) {
-    Row("Game timing",
-        "The game advances one step per 60 Hz vertical blank, like the console. Unlocked "
-        "replaces that with a 1000 Hz timer: the game runs as fast as your PC allows, and "
-        "gameplay speeds up with it. Use it only to measure headroom.");
-    static const char* kTiming[] = {"Console 60 Hz", "Unlocked"};
-    int timing = CvarBool("vsync") ? 0 : 1;
-    if (Segmented("timing", timing, kTiming, 2)) SetLive("vsync", timing ? "false" : "true");
-    if (timing) Hint("Unlocked: gameplay, animation and music sync run faster than normal.", &kWarning);
-    ImGui::EndTable();
-  }
-  NextLaunch();
-  if (BeginRows("pacing_restart")) {
-    Row("Guest refresh rate",
-        "The display rate the game is told it runs at. Anything but 60 Hz changes game speed "
-        "the same way Unlocked does.");
-    static const char* kRates[] = {"60.000000", "50.000000", "120.000000", "144.000000"};
-    if (ImGui::BeginCombo("##refresh", RefreshName(next_["video_mode_refresh_rate"]).c_str())) {
-      for (const char* rate : kRates) {
-        std::string label = RefreshName(rate);
-        if (std::string(rate) == "60.000000") label += " (console)";
-        else label += " (experimental)";
-        double next = 0, value = 0;
-        rex::cvar::ParseDouble(next_["video_mode_refresh_rate"], next);
-        rex::cvar::ParseDouble(rate, value);
-        if (ImGui::Selectable(label.c_str(), std::abs(next - value) < 0.01)) {
-          SetNext("video_mode_refresh_rate", rate);
-        }
-      }
-      ImGui::EndCombo();
-    }
-    RestartState(RefreshName(running_["video_mode_refresh_rate"]),
-                 RefreshName(next_["video_mode_refresh_rate"]));
-
-    Row("Allow tearing / variable refresh",
-        "Shows each frame the moment it is ready. With G-Sync or FreeSync this lowers latency "
-        "without tearing; on a fixed-rate display it can tear.");
-    bool tearing = next_["d3d12_allow_variable_refresh_rate_and_tearing"] == "true";
-    if (ImGui::Checkbox("##tearing", &tearing)) {
-      SetNext("d3d12_allow_variable_refresh_rate_and_tearing", tearing ? "true" : "false");
-    }
-    RestartState(running_["d3d12_allow_variable_refresh_rate_and_tearing"] == "true" ? "On" : "Off",
-                 tearing ? "On" : "Off");
-    ImGui::EndTable();
-  }
-  ImGui::Dummy(ImVec2(0, 4));
-  Hint("Frame interpolation (inserting generated frames between the game's own) is not "
-       "available: the renderer receives finished frames without motion vectors or depth "
-       "history to build them from. See About for the frame-rate findings.");
-
-  ImGui::Dummy(ImVec2(0, 8));
-  Group("PERFORMANCE OVERLAY", "F2 toggles it at any time.", kBrass);
-  if (BeginRows("overlay")) {
-    Row("Show overlay", "Frame rate, frame times and load on top of the game.");
-    bool overlay = CvarBool("port_perf_overlay");
-    if (ImGui::Checkbox("##overlay", &overlay)) {
-      SetLive("port_perf_overlay", overlay ? "true" : "false");
-      if (host_->show_perf_overlay) host_->show_perf_overlay(overlay);
-    }
-    Row("Detailed panel", "CPU threads, GPU, memory, resolution and what is limiting the frame "
-                          "rate. Off shows a single line.");
-    bool detail = CvarBool("port_perf_detail");
-    if (ImGui::Checkbox("##detail", &detail)) SetLive("port_perf_detail", detail ? "true" : "false");
-    Row("Position", nullptr);
-    static const char* kCorners[] = {"Top left", "Top right", "Bottom left", "Bottom right"};
-    int corner = std::clamp(CvarInt("port_perf_corner"), 0, 3);
-    if (ImGui::Combo("##corner", &corner, kCorners, 4)) SetLive("port_perf_corner", std::to_string(corner));
-    Row("CSV log", "Writes one row of these measurements per second to the logs folder, for "
-                   "comparing settings over a whole match.");
+  } else if (id == "csv_log") {
     const auto csv = host_->sampler ? host_->sampler->csv_path() : std::filesystem::path();
-    if (ImGui::Button(csv.empty() ? "Start logging" : "Stop logging", ImVec2(-FLT_MIN, 0)) &&
-        host_->set_csv_logging) {
-      const auto file = host_->set_csv_logging(csv.empty());
-      status_error_ = false;
-      status_ = file.empty() ? "Logging stopped." : "Logging to " + file.string();
+    std::string help = setting.help;
+    if (!csv.empty()) help = "Writing " + csv.string();
+    Row(setting.label, help.c_str());
+    if (ImGui::Button(csv.empty() ? "Start" : "Stop", ImVec2(-FLT_MIN, 0)) && host_->set_csv_logging) {
+      host_->set_csv_logging(csv.empty());
     }
-    if (!csv.empty()) Hint(csv.string().c_str());
-    ImGui::EndTable();
-  }
-  if (host_->profiler) {
-    ImGui::Dummy(ImVec2(0, 8));
-    Group("CPU PROFILER", "Where the busiest threads spend their time.", kBrass);
+  } else if (id == "profiler") {
+    if (!host_->profiler) return;
+    Row(setting.label, setting.help);
     const telemetry::ProfileReport report = host_->profiler->Report();
+    const auto system = host_->sampler ? host_->sampler->Latest() : telemetry::SystemSnapshot{};
     ImGui::BeginDisabled(report.running || system.busiest_threads.empty());
-    if (ImGui::Button(report.running ? "Profiling..." : "Profile the 4 busiest threads (5 s)")) {
+    if (ImGui::Button(report.running ? "Profiling..." : "Run", ImVec2(-FLT_MIN, 0))) {
       std::vector<std::pair<uint32_t, std::string>> threads;
       for (const auto& thread : system.busiest_threads) {
         if (threads.size() < 4 && thread.core_percent >= 5) threads.emplace_back(thread.id, thread.name);
@@ -751,178 +510,213 @@ void PortMenuDialog::DrawPerformance() {
       host_->profiler->Start(std::move(threads), 5.0, host_->log_dir);
     }
     ImGui::EndDisabled();
-    if (!report.summary.empty()) Hint(report.summary.c_str());
-    for (const auto& thread : report.threads) {
-      ImGui::TextColored(kBrass, "%s", thread.thread_name.c_str());
-      for (size_t i = 0; i < thread.top.size() && i < 6; ++i) {
-        ImGui::TextDisabled("%5.1f%%  %s", thread.top[i].percent, thread.top[i].location.c_str());
+  } else if (id == "reset_advanced") {
+    Row("", "Puts every setting on this page back to its default.");
+    if (ImGui::Button("Reset to defaults", ImVec2(-FLT_MIN, 0))) {
+      for (const auto& group : settings_catalog::Groups()) {
+        if (std::strcmp(group.tab, "ADVANCED") != 0) continue;
+        for (const auto& s : group.settings) {
+          const auto* flag = s.kind == Kind::kCustom ? nullptr : rex::cvar::GetFlagInfo(s.cvar);
+          if (flag) Set(s, flag->default_value);
+        }
       }
     }
-    Hint("\"guest sub_XXXXXXXX\" is a recompiled game function; a single function taking most "
-         "samples on a busy thread usually means it is spinning while it waits.");
-  }
-
-  DrawCatalog("PERFORMANCE");
-  ImGui::Dummy(ImVec2(0, 4));
-  for (const auto& hint : DiagnosePerformance(recent, system)) {
-    Hint(hint.text.c_str(), hint.warning ? &kWarning : &kOk);
   }
 }
 
-void PortMenuDialog::DrawControls() {
+void PortMenuDialog::DrawGroup(const settings_catalog::Group& group) {
+  // Backend-specific settings follow the API that is running now.
+  const auto running = running_.find("port_gpu_backend");
+  const std::string backend = running != running_.end() ? running->second : "d3d12";
+  const settings_catalog::ValueOf value_of = [this](const char* name) { return ValueOf(name); };
+  std::vector<const Setting*> visible;
+  for (const auto& setting : group.settings) {
+    if (setting.kind != Kind::kCustom && !rex::cvar::GetFlagInfo(setting.cvar)) continue;
+    if (setting.backend && backend != setting.backend) continue;
+    if ((setting.kind == Kind::kChoice || setting.kind == Kind::kSegmented) &&
+        setting.choices.size() < 2) {
+      continue;
+    }
+    if (setting.visible && !setting.visible(value_of)) continue;
+    visible.push_back(&setting);
+  }
+  if (visible.empty()) return;
+  GroupTitle(group.title);
+  if (!BeginRows(group.title)) return;
+  for (const auto* setting : visible) DrawSetting(*setting);
+  EndRows();
+}
+
+void PortMenuDialog::DrawPerformanceHeader() {
+  const telemetry::FrameStats now = telemetry::ComputeFrameStats(1.0);
+  const telemetry::FrameStats recent = telemetry::ComputeFrameStats(5.0);
+  const auto system = host_->sampler ? host_->sampler->Latest() : telemetry::SystemSnapshot{};
+  ImGui::PushFont(nullptr, 30.0f);
+  ImGui::TextColored(now.fps >= 57 ? kOk : kWarning, "%.0f FPS", now.fps);
+  ImGui::PopFont();
+  ImGui::SameLine();
+  ImGui::BeginGroup();
+  ImGui::Text("%.1f ms   1%% low %.1f ms   worst %.1f ms", recent.avg_ms, recent.p99_ms, recent.max_ms);
+  const auto hints = DiagnosePerformance(recent, system);
+  ImGui::PushTextWrapPos(0.0f);
+  if (!hints.empty()) ImGui::TextColored(hints.front().warning ? kWarning : kDim, "%s", hints.front().text.c_str());
+  ImGui::PopTextWrapPos();
+  ImGui::EndGroup();
+  telemetry::RecentFrameTimes(frame_times_, 240);
+  DrawFrameTimeGraph(frame_times_, ImGui::GetContentRegionAvail().x, 40.0f);
+}
+
+void PortMenuDialog::DrawProfileReport() {
+  if (!host_->profiler) return;
+  const telemetry::ProfileReport report = host_->profiler->Report();
+  if (report.threads.empty()) return;
+  GroupTitle("PROFILE");
+  ImGui::TextColored(kDim, "%s", report.summary.c_str());
+  for (const auto& thread : report.threads) {
+    ImGui::TextColored(kBrass, "%s", thread.thread_name.c_str());
+    for (size_t i = 0; i < thread.top.size() && i < 4; ++i) {
+      ImGui::TextColored(kDim, "  %5.1f%%  %s", thread.top[i].percent, thread.top[i].location.c_str());
+    }
+  }
+}
+
+void PortMenuDialog::DrawControllerHeader() {
   const auto pads = port_input::ConnectedPads();
-  Group("CONTROLLER", "Applies immediately.", kOk);
   if (pads.empty()) {
-    Hint("No controller is reporting. Connect one, or press a button if it is asleep.");
-  } else {
-    const auto& pad = pads.front();
-    ImGui::Text("%s", pad.name.empty() ? "Controller" : pad.name.c_str());
-    if (pads.size() > 1) {
-      ImGui::SameLine();
-      ImGui::TextDisabled("+ %zu more", pads.size() - 1);
-    }
-    DrawStick("Left stick", pad.thumb_lx, pad.thumb_ly, CvarInt("pad_left_deadzone"));
-    ImGui::SameLine(0, 30);
-    DrawStick("Right stick", pad.thumb_rx, pad.thumb_ry, CvarInt("pad_right_deadzone"));
-    ImGui::SameLine(0, 30);
-    ImGui::BeginGroup();
-    ImGui::ProgressBar(pad.left_trigger / 255.0f, ImVec2(140, 0), "LT");
-    ImGui::ProgressBar(pad.right_trigger / 255.0f, ImVec2(140, 0), "RT");
-    ImGui::TextDisabled("Pressed: %s", PressedButtons(pad).c_str());
-    ImGui::EndGroup();
+    ImGui::TextColored(kDim, "No controller detected. Press a button to wake it.");
+    return;
   }
-  if (BeginRows("pad")) {
-    const auto slider = [&](const char* label, const char* hint, const char* name, int max) {
-      Row(label, hint);
-      int value = CvarInt(name);
-      ImGui::PushID(name);
-      if (ImGui::SliderInt("##v", &value, 0, max, "%d%%")) SetLive(name, std::to_string(value));
-      ImGui::PopID();
-    };
-    slider("Left stick deadzone", "Ignore small movements from a worn stick. 0 leaves it to the game.",
-           "pad_left_deadzone", 50);
-    slider("Right stick deadzone", nullptr, "pad_right_deadzone", 50);
-    slider("Trigger deadzone", nullptr, "pad_trigger_deadzone", 50);
-    slider("Rumble strength", nullptr, "pad_vibration", 100);
-
-    Row("Left stick also presses the D-pad", "For moves and menus that only read the D-pad.");
-    bool dpad = CvarBool("pad_stick_to_dpad");
-    if (ImGui::Checkbox("##dpad", &dpad)) SetLive("pad_stick_to_dpad", dpad ? "true" : "false");
-    Row("Hold Back + Start for this menu", "After 0.6 s. Start closes the menu again.");
-    bool chord = CvarBool("pad_menu_chord");
-    if (ImGui::Checkbox("##chord", &chord)) SetLive("pad_menu_chord", chord ? "true" : "false");
-    ImGui::EndTable();
-  }
-
-  ImGui::Dummy(ImVec2(0, 6));
-  Group("BUTTON MAPPING", "What each button sends to the game.", kBrass);
-  if (BeginRows("mapping")) {
-    for (int i = 0; i < 8; ++i) {
-      Row(kPadLabels[i], nullptr);
-      const std::string current = Cvar(port_input::kMapCvars[i]);
-      ImGui::PushID(i);
-      if (ImGui::BeginCombo("##map", current.c_str())) {
-        for (const char* target : port_input::kControlNames) {
-          if (ImGui::Selectable(target, current == target)) SetLive(port_input::kMapCvars[i], target);
-        }
-        ImGui::EndCombo();
-      }
-      ImGui::PopID();
-    }
-    Row("", nullptr);
-    if (ImGui::Button("Reset mapping", ImVec2(-FLT_MIN, 0))) {
-      for (int i = 0; i < 8; ++i) SetLive(port_input::kMapCvars[i], port_input::kControlNames[i]);
-    }
-    ImGui::EndTable();
-  }
-
-  ImGui::Dummy(ImVec2(0, 6));
-  Group("KEYBOARD", "Applies immediately.", kOk);
-  if (BeginRows("keyboard")) {
-    Row("Keyboard as controller", "Map keyboard keys to Xbox buttons.");
-    bool mnk = CvarBool("mnk_mode");
-    if (ImGui::Checkbox("##mnk", &mnk)) SetLive("mnk_mode", mnk ? "true" : "false");
-    if (mnk) {
-      for (int i = 0; i < 4; ++i) {
-        Row(kKeyLabels[i], i == 0 ? "SDK key names, comma separated, e.g. Space or Semicolon,Space."
-                                  : nullptr);
-        ImGui::PushID(i);
-        ImGui::InputText("##key", keys_[i], sizeof(keys_[i]));
-        if (ImGui::IsItemDeactivatedAfterEdit()) SetLive(kKeyFlags[i], keys_[i]);
-        ImGui::PopID();
-      }
-    }
-    ImGui::EndTable();
-  }
-  ImGui::Dummy(ImVec2(0, 4));
-  Hint("Game input is paused while this menu is open.");
+  const auto& pad = pads.front();
+  DrawStick(pad.thumb_lx, pad.thumb_ly, rex::cvar::Query<int32_t>("pad_left_deadzone"));
+  ImGui::SameLine();
+  DrawStick(pad.thumb_rx, pad.thumb_ry, rex::cvar::Query<int32_t>("pad_right_deadzone"));
+  ImGui::SameLine(0, 16);
+  ImGui::BeginGroup();
+  ImGui::Text("%s", pad.name.empty() ? "Controller" : pad.name.c_str());
+  ImGui::ProgressBar(pad.left_trigger / 255.0f, ImVec2(90, 6), "");
+  ImGui::SameLine();
+  ImGui::ProgressBar(pad.right_trigger / 255.0f, ImVec2(90, 6), "");
+  const std::string pressed = PressedButtons(pad);
+  ImGui::TextColored(kDim, "%s", pressed.empty() ? " " : pressed.c_str());
+  ImGui::EndGroup();
 }
 
 void PortMenuDialog::DrawAbout() {
-  ImGui::Dummy(ImVec2(0, 2));
-  ImGui::TextColored(kBrass, "MKVDCU-Recomp for Windows PC");
-  ImGui::Separator();
-  ImGui::TextWrapped("F1 or Back + Start opens this menu; F1 or Start closes it and saves. "
-                     "F2 shows the performance overlay. On a controller, the D-pad moves, A "
-                     "selects, B backs out and the bumpers switch tabs.");
   ImGui::Dummy(ImVec2(0, 4));
-  ImGui::TextUnformatted("Frame rate");
-  Hint("The game's simulation is tied to the 60 Hz vertical blank, so any setting that raises "
-       "the frame rate also raises game speed. A real 120 FPS mode needs the game's update "
-       "step decoupled from vblank, which is engine-level work not done yet.");
-  ImGui::Dummy(ImVec2(0, 4));
-  ImGui::TextUnformatted("Settings file");
-  Hint(host_->config_path.string().c_str());
-  ImGui::Dummy(ImVec2(0, 4));
-  ImGui::TextUnformatted("Not available yet");
-  Hint("Frame interpolation, output downscaling below 1x, AMD CAS/FSR (not in this SDK "
-       "build), separate audio volumes.");
+  ImGui::TextColored(kBrass, "MKVDCU-Recomp %s", Cvar("port_version").c_str());
+  ImGui::TextColored(kDim, "Mortal Kombat vs. DC Universe, recompiled for Windows.");
+  if (host_->mods_loaded) {
+    ImGui::TextColored(kOk, "%zu mod%s active", host_->mods_loaded, host_->mods_loaded == 1 ? "" : "s");
+  }
+  GroupTitle("CONTROLS");
+  if (BeginRows("about_controls")) {
+    const std::pair<const char*, const char*> kKeys[] = {
+        {"Open or close this menu", "F1, or hold Back + Start"},
+        {"Switch tabs", "LB / RB, or Page Up / Page Down"},
+        {"Performance overlay", "F2"},
+    };
+    for (const auto& [what, keys] : kKeys) {
+      Row(what, nullptr);
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextColored(kDim, "%s", keys);
+    }
+    EndRows();
+  }
+  GroupTitle("FILES");
+  ImGui::TextColored(kDim, "Settings save automatically to %s", host_->config_path.string().c_str());
+  if (ImGui::Button("Open settings folder")) {
+    ShellExecuteW(nullptr, L"open", host_->config_path.parent_path().wstring().c_str(), nullptr,
+                  nullptr, SW_SHOWNORMAL);
+  }
+}
+
+void PortMenuDialog::DrawTab(const char* tab) {
+  const std::string name = tab;
+  if (name == "ABOUT") {
+    DrawAbout();
+    return;
+  }
+  if (name == "PERFORMANCE") DrawPerformanceHeader();
+  if (name == "CONTROLS") DrawControllerHeader();
+  if (name == "ADVANCED") {
+    ImGui::TextColored(kWarning, "These defaults are tested. Change them only to troubleshoot.");
+  }
+  for (const auto& group : settings_catalog::Groups()) {
+    if (name == group.tab) DrawGroup(group);
+  }
+  if (name == "DISPLAY") {
+    const telemetry::GuestOutputSize size = telemetry::LastGuestOutputSize();
+    const int scale = std::max(1, std::atoi(running_["resolution_scale"].c_str()));
+    const PortWindowInfo window = host_->window_info ? host_->window_info() : PortWindowInfo{};
+    ImGui::Dummy(ImVec2(0, 4));
+    if (size.width) {
+      ImGui::TextColored(kDim, "Game %u x %u    Rendering %u x %u    Window %u x %u", size.width,
+                         size.height, size.width * scale, size.height * scale, window.width,
+                         window.height);
+    }
+  }
+  if (name == "PERFORMANCE") DrawProfileReport();
 }
 
 void PortMenuDialog::DrawFooter() {
-  bool restart_pending = false;
+  int pending = 0;
   for (const auto& [name, value] : next_) {
-    if (running_[name] != value) restart_pending = true;
+    if (!SameValue(name.c_str(), running_[name], value)) ++pending;
   }
-  std::string text;
-  const ImVec4* color = nullptr;
+  std::string status;
+  const ImVec4* color = &kDim;
   if (status_error_) {
-    text = status_;
+    status = status_;
     color = &kError;
-  } else if (dirty_) {
-    text = "Unsaved changes. They are also saved when you close this menu.";
-    color = &kBrass;
-  } else if (restart_pending) {
-    text = "Saved. Restart the game to use the Next launch settings.";
+  } else if (pending) {
+    status = "Restart the game to apply " + std::to_string(pending) +
+             (pending == 1 ? " change" : " changes");
     color = &kWarning;
-  } else if (!status_.empty()) {
-    text = status_;
-  } else {
-    text = "All settings saved.";
+  } else if (ImGui::GetTime() - saved_at_ < 2.0) {
+    status = "Saved";
+    color = &kOk;
   }
 
-  ImGui::BeginDisabled(!dirty_);
-  if (ImGui::Button("SAVE", ImVec2(110, 0)) && Save()) status_ = "Saved.";
-  ImGui::SameLine();
-  if (ImGui::Button("UNDO CHANGES", ImVec2(150, 0))) Revert();
-  ImGui::EndDisabled();
-  ImGui::SameLine();
+  const bool can_undo = HasChangesSinceOpen();
+  const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+  const char* undo_label = "Undo changes";
+  const float undo_width = ImGui::CalcTextSize(undo_label).x + ImGui::GetStyle().FramePadding.x * 2;
+  const float status_width = status.empty() ? 0 : ImGui::CalcTextSize(status.c_str()).x + 16;
+  const float help_width = ImGui::GetContentRegionAvail().x - undo_width - status_width - 16;
+
+  const std::string help = help_.empty()
+                               ? "LB / RB switch tabs.   Start or F1 closes.   Settings save automatically."
+                               : help_;
   ImGui::AlignTextToFramePadding();
-  Hint(text.c_str(), color);
+  ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + help_width);
+  ImGui::TextColored(kDim, "%s", help.c_str());
+  ImGui::PopTextWrapPos();
+  if (!status.empty()) {
+    ImGui::SameLine(right - undo_width - status_width);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(*color, "%s", status.c_str());
+  }
+  ImGui::SameLine(right - undo_width);
+  ImGui::BeginDisabled(!can_undo);
+  if (ImGui::Button(undo_label)) Undo();
+  ImGui::EndDisabled();
 }
 
 void PortMenuDialog::OnDraw(ImGuiIO& io) {
   FeedGamepad(io);
+  if (dirty_ && ImGui::GetTime() >= save_due_) Save();
 
   const ImVec2 display = io.DisplaySize;
   auto* back = ImGui::GetBackgroundDrawList();
   back->AddRectFilled(ImVec2(0, 0), display, IM_COL32(6, 7, 9, 204));
-  const float width = std::min(display.x - 32.0f, 920.0f);
-  const float height = std::min(display.y - 28.0f, 680.0f);
+  const float width = std::min(display.x - 32.0f, 900.0f);
+  const float height = std::min(display.y - 28.0f, 640.0f);
   ImGui::SetNextWindowPos(ImVec2((display.x - width) * 0.5f, (display.y - height) * 0.5f));
   ImGui::SetNextWindowSize(ImVec2(width, height));
   for (const auto& c : kPalette) ImGui::PushStyleColor(c.index, c.color);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(12, 8));
+  ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4, 5));
   const auto flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
   if (ImGui::Begin("MKVDCU-RECOMP##port_menu", nullptr, flags)) {
@@ -931,35 +725,32 @@ void PortMenuDialog::OnDraw(ImGuiIO& io) {
     draw->AddRectFilled(min, ImVec2(min.x + width / 2, min.y + 4), kRed);
     draw->AddRectFilled(ImVec2(min.x + width / 2, min.y), ImVec2(min.x + width, min.y + 4), kBlue);
 
-    const char* close_label = "CLOSE  F1";
+    const char* close_label = "CLOSE";
     const float close_width =
         ImGui::CalcTextSize(close_label).x + ImGui::GetStyle().FramePadding.x * 2;
     const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
     ImGui::AlignTextToFramePadding();
     ImGui::TextColored(kBrass, "MKVDCU-RECOMP");
-    ImGui::SameLine();
-    ImGui::TextDisabled("Port settings");
     ImGui::SameLine(right - close_width);
     if (ImGui::Button(close_label)) RequestClose();
 
     const float footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 2;
+    if (const int cycle = REXCVAR_GET(port_debug_menu_cycle); cycle > 0 && pending_tab_ < 0) {
+      const int tab = int(ImGui::GetTime() / cycle) % kTabCount;
+      if (tab != tab_) pending_tab_ = tab;
+    }
+    if (!io.WantTextInput && pending_tab_ < 0) {
+      if (ImGui::IsKeyPressed(ImGuiKey_PageUp)) pending_tab_ = (tab_ + kTabCount - 1) % kTabCount;
+      if (ImGui::IsKeyPressed(ImGuiKey_PageDown)) pending_tab_ = (tab_ + 1) % kTabCount;
+    }
+    frame_help_.clear();
     if (ImGui::BeginTabBar("port_tabs")) {
-      const struct {
-        const char* label;
-        void (PortMenuDialog::*draw)();
-      } tabs[] = {{"DISPLAY", &PortMenuDialog::DrawDisplay},
-                  {"GRAPHICS", &PortMenuDialog::DrawGraphics},
-                  {"PERFORMANCE", &PortMenuDialog::DrawPerformance},
-                  {"CONTROLS", &PortMenuDialog::DrawControls},
-                  {"AUDIO", &PortMenuDialog::DrawAudio},
-                  {"SYSTEM", &PortMenuDialog::DrawSystem},
-                  {"ABOUT", &PortMenuDialog::DrawAbout}};
-      for (int i = 0; i < int(std::size(tabs)); ++i) {
+      for (int i = 0; i < kTabCount; ++i) {
         const ImGuiTabItemFlags tab_flags = pending_tab_ == i ? ImGuiTabItemFlags_SetSelected : 0;
-        if (ImGui::BeginTabItem(tabs[i].label, nullptr, tab_flags)) {
+        if (ImGui::BeginTabItem(kTabs[i], nullptr, tab_flags)) {
           tab_ = i;
           ImGui::BeginChild("settings", ImVec2(0, -footer));
-          (this->*tabs[i].draw)();
+          DrawTab(kTabs[i]);
           ImGui::EndChild();
           ImGui::EndTabItem();
         }
@@ -967,10 +758,12 @@ void PortMenuDialog::OnDraw(ImGuiIO& io) {
       pending_tab_ = -1;
       ImGui::EndTabBar();
     }
+    // Keep the last help while a dropdown is open over its row.
+    if (!frame_help_.empty() || !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) help_ = frame_help_;
     ImGui::Separator();
     DrawFooter();
   }
   ImGui::End();
-  ImGui::PopStyleVar();
+  ImGui::PopStyleVar(3);
   ImGui::PopStyleColor(static_cast<int>(std::size(kPalette)));
 }

@@ -78,9 +78,9 @@ int ScaleSetting() {
 std::vector<PerfHint> DiagnosePerformance(const telemetry::FrameStats& frames,
                                           const telemetry::SystemSnapshot& system) {
   std::vector<PerfHint> hints;
-  char text[256];
+  char text[160];
   if (frames.samples == 0 || frames.seconds_since_last_frame > 1.0) {
-    hints.push_back({true, "The game is not presenting frames right now (loading or stalled)."});
+    hints.push_back({false, "Loading."});
     return hints;
   }
   const double target = TargetFps(system);
@@ -88,45 +88,32 @@ std::vector<PerfHint> DiagnosePerformance(const telemetry::FrameStats& frames,
       system.busiest_threads.empty() ? nullptr : &system.busiest_threads.front();
 
   if (frames.fps < target * 0.95) {
-    if (busiest && busiest->core_percent >= 90) {
-      std::snprintf(text, sizeof(text),
-                    "Likely CPU-bound: thread '%s' is using %.0f%% of one core. Some of that can "
-                    "be spin-waiting; F1 > Performance > CPU profiler shows where it goes.",
-                    busiest->name.c_str(), busiest->core_percent);
-      hints.push_back({true, text});
-    } else if (system.gpu_3d_percent >= 90) {
-      std::snprintf(text, sizeof(text),
-                    "GPU-bound: the GPU is %.0f%% busy with this game. Lower the internal render "
-                    "scale.",
+    if (system.gpu_3d_percent >= 90) {
+      std::snprintf(text, sizeof(text), "GPU-limited (%.0f%% busy). Lower the render scale.",
                     system.gpu_3d_percent);
       hints.push_back({true, text});
-    } else {
-      std::snprintf(text, sizeof(text),
-                    "Below %.0f FPS with CPU and GPU headroom: the game is waiting on "
-                    "synchronisation, shader compiles or streaming.",
-                    target);
+    } else if (busiest && busiest->core_percent >= 90) {
+      std::snprintf(text, sizeof(text), "Possibly CPU-limited: %s at %.0f%% of a core.",
+                    busiest->name.c_str(), busiest->core_percent);
       hints.push_back({true, text});
+    } else {
+      hints.push_back({true, "Below target with headroom: loading, shaders or a movie."});
     }
   }
   if (frames.hitches > 0) {
-    std::snprintf(text, sizeof(text),
-                  "%u hitch%s in the last 5 s (worst %.1f ms). Usually shader compilation or "
-                  "streaming; shader hitches fade as the cache fills.",
+    std::snprintf(text, sizeof(text), "%u hitch%s in 5 s (worst %.0f ms): loading or new shaders.",
                   frames.hitches, frames.hitches == 1 ? "" : "es", frames.max_ms);
     hints.push_back({true, text});
   } else if (frames.p99_ms > frames.avg_ms * 1.25) {
-    std::snprintf(text, sizeof(text),
-                  "Uneven pacing: 1%% of frames take %.1f ms against a %.1f ms average.",
+    std::snprintf(text, sizeof(text), "Uneven pacing: 1%% low %.1f ms against %.1f ms average.",
                   frames.p99_ms, frames.avg_ms);
     hints.push_back({true, text});
   }
   if (system.vram_budget_bytes && system.vram_used_bytes > system.vram_budget_bytes * 0.9) {
-    hints.push_back({true, "Video memory is over 90% of the budget Windows allows this game. "
-                           "Expect stutter; lower the render scale."});
+    hints.push_back({true, "Video memory is nearly full. Lower the render scale."});
   }
   if (system.system_cpu_percent > 90) {
-    std::snprintf(text, sizeof(text),
-                  "The whole CPU is %.0f%% busy. Close background programs.",
+    std::snprintf(text, sizeof(text), "CPU is %.0f%% busy overall. Close background apps.",
                   system.system_cpu_percent);
     hints.push_back({true, text});
   }
@@ -137,11 +124,10 @@ std::vector<PerfHint> DiagnosePerformance(const telemetry::FrameStats& frames,
     hints.push_back({true, text});
   }
   if (hints.empty()) {
-    std::snprintf(text, sizeof(text), "Holding %.0f FPS with steady pacing.", frames.fps);
+    std::snprintf(text, sizeof(text), "Steady %.0f FPS.", frames.fps);
     hints.push_back({false, text});
     if (system.gpu_3d_percent >= 0 && system.gpu_3d_percent < 45 && ScaleSetting() < 3) {
-      std::snprintf(text, sizeof(text),
-                    "The GPU is only %.0f%% busy; a higher render scale is likely affordable.",
+      std::snprintf(text, sizeof(text), "GPU %.0f%% busy: a higher render scale should fit.",
                     system.gpu_3d_percent);
       hints.push_back({false, text});
     }

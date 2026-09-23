@@ -6,16 +6,28 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-  </PropertyGroup>
+    <AssemblyName>MKVDCU-Recomp</AssemblyName>
+    <RootNamespace>MKVDCU.Launcher</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
 
-  <ItemGroup Condition="'$(BuilderBundlePath)' != ''">
-    <EmbeddedResource Include="$(BuilderBundlePath)" LogicalName="MKVDCU.BuilderBundle.zip" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(UpdaterBinaryPath)' != ''">
-    <EmbeddedResource Include="$(UpdaterBinaryPath)" LogicalName="MKVDCU.Updater.exe" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(ReleaseManifestPath)' != ''">
-    <EmbeddedResource Include="$(ReleaseManifestPath)" LogicalName="MKVDCU.ReleaseManifest.json" />
-  </ItemGroup>
+    <!-- scripts/release.ps1 passes -p:Version=x.y.z; local builds are "development". -->
+    <Version>0.0.0-dev</Version>
+    <Product>MKVDCU-Recomp</Product>
+    <AssemblyTitle>MKVDCU-Recomp Launcher</AssemblyTitle>
+    <Description>Launcher for the unofficial Mortal Kombat vs. DC Universe PC port</Description>
+    <Company>MKVDCU-Recomp contributors</Company>
+    <Copyright>MKVDCU-Recomp contributors</Copyright>
+    <NeutralLanguage>en</NeutralLanguage>
+
+    <!-- One self-contained EXE. Not compressed or trimmed: packed, high-entropy
+         executables look suspicious to antivirus heuristics. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
 
 </Project>

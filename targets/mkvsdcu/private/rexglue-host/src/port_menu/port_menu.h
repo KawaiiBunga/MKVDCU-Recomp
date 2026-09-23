@@ -3,12 +3,12 @@
 #include <functional>
 #include <map>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include <rex/ui/imgui_dialog.h>
 
 #include "port_host.h"
+#include "port_menu/settings_catalog.h"
 
 class PortMenuDialog final : public rex::ui::ImGuiDialog {
  public:
@@ -26,40 +26,56 @@ class PortMenuDialog final : public rex::ui::ImGuiDialog {
  private:
   void Load();
   bool Save();
-  void Revert();
+  void Undo();
+  bool HasChangesSinceOpen() const;
   void SetLive(const char* name, const std::string& value);
   void SetNext(const char* name, const std::string& value);
+  void Set(const settings_catalog::Setting& setting, const std::string& value);
+  std::string ValueOf(const char* name) const;
   void FeedGamepad(ImGuiIO& io);
 
-  void DrawDisplay();
-  void DrawGraphics();
-  void DrawPerformance();
-  void DrawControls();
-  void DrawAudio();
-  void DrawSystem();
-  void DrawCatalog(const char* tab);
+  // Rows: label on the left, control on the right; the help line at the
+  // bottom describes the row under the mouse or the controller cursor.
+  bool BeginRows(const char* id);
+  void Row(const char* label, const char* help, bool restart = false, bool pending = false);
+  void EndRows();
+  void FinishRow(float bottom);
+
+  void DrawTab(const char* tab);
+  void DrawGroup(const settings_catalog::Group& group);
+  void DrawSetting(const settings_catalog::Setting& setting);
+  void DrawCustom(const settings_catalog::Setting& setting);
+  void DrawPerformanceHeader();
+  void DrawControllerHeader();
+  void DrawProfileReport();
   void DrawAbout();
   void DrawFooter();
 
   const PortHost* host_;
   std::function<void()> on_closed_;
 
-  // Live settings are read straight from their cvars; these are the values
-  // last saved, for Undo.
-  std::vector<std::pair<std::string, std::string>> saved_live_;
   // Settings only read at startup: what is running and what the next launch
   // will use (from the config file).
   std::map<std::string, std::string> running_;
   std::map<std::string, std::string> next_;
+  // Every value as the menu opened, for Undo.
+  std::map<std::string, std::string> open_live_;
+  std::map<std::string, std::string> open_next_;
 
   char keys_[4][64] = {};
   std::vector<float> frame_times_;
-  int monitor_count_ = 1;
+
+  float row_top_ = -1;
+  std::string row_help_;
+  std::string help_;
+  std::string frame_help_;
 
   int tab_ = 0;
   int pending_tab_ = -1;
   uint16_t last_pad_buttons_ = 0;
   bool dirty_ = false;
+  double save_due_ = 0;
+  double saved_at_ = -10;
   bool status_error_ = false;
   std::string status_;
 };

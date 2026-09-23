@@ -7,11 +7,11 @@ development PC: GeForce GTX 1650 SUPER, 12 logical CPU threads, 1920x1080 and
 
 ## How to measure
 
-- Press F2, then turn on **Detailed panel** in F1 > Performance. The panel
+- Press F2, then turn on **Details** in F1 > Performance > Overlay. The panel
   shows the game's real frame rate (timed at its `VdSwap` call), frame-time
   percentiles and hitches, per-thread CPU, the busiest GPU engine, VRAM and a
   "what is limiting it" line.
-- F1 > Performance > **Start logging** writes one CSV row per second. Compare
+- F1 > Performance > **Log to file** writes one CSV row per second. Compare
   settings over the same stretch of play (for example a full Arcade round).
 
 > **Build-flags warning (fixed 2026-09-23).** The development build directory's
@@ -74,8 +74,8 @@ What the numbers mean:
 
 ## Finding hot guest code
 
-F1 > Performance > **Profile the 4 busiest threads (5 s)** samples each busy
-thread's instruction pointer about once per millisecond and maps it to the
+F1 > Performance > **CPU profiler: Run** samples each of the four busiest
+threads' instruction pointers for 5 s, about once per millisecond, and maps it to the
 recompiled guest function (`sub_XXXXXXXX`) or host symbol it falls in. The
 report shows in the menu and is saved as `profile-*.txt` in the logs folder.
 For unattended runs, `--port_profile_after=<seconds>` starts the same profile
@@ -93,9 +93,10 @@ help, such as driver workarounds.
 ## Frame timing
 
 - The simulation advances once per presented frame. With the guest vblank
-  unlocked (F1 > Performance > Game timing) the game rendered 72-73 FPS and
-  the in-match round clock ran ~27% fast (14 game seconds in ~11 real
-  seconds). A real high-frame-rate mode needs the game's update step
+  unlocked (F1 > Performance > Game speed), an in-match test on the -O0
+  build rendered 72-73 FPS and the round clock ran ~27% fast (14 game
+  seconds in ~11 real seconds); the -O3 build reaches ~130 FPS unlocked, so
+  gameplay would run at roughly double speed. A real high-frame-rate mode needs the game's update step
   decoupled from vblank, which is engine work.
 - Presenter-side frame interpolation is not possible: the presenter receives
   finished frames with no motion vectors or depth history.
@@ -109,16 +110,16 @@ comparison run), **idea** (not implemented).
 
 | Area | Change | Status | Expected effect |
 | --- | --- | --- | --- |
-| Frame pacing | Request 1 ms Windows timer resolution at startup (F1 > System > High-precision timer). The SDK's guest vblank thread sleeps `Sleep(1)` per tick and never raises the timer, so at the default ~15.6 ms resolution vblanks arrive in catch-up bursts. | done | Measured: no difference (see A/B above); the guest vblank rate is already 60.0 Hz either way |
-| Scheduling | Process priority above normal and EcoQoS power throttling off by default (F1 > System). | done | Fewer delays from background programs and Windows 11 efficiency cores |
+| Frame pacing | Request 1 ms Windows timer resolution at startup (F1 > Advanced > 1 ms timer). The SDK's guest vblank thread sleeps `Sleep(1)` per tick and never raises the timer, so at the default ~15.6 ms resolution vblanks arrive in catch-up bursts. | done | Measured: no difference (see A/B above); the guest vblank rate is already 60.0 Hz either way |
+| Scheduling | Process priority above normal and EcoQoS power throttling off by default (F1 > Advanced > System). | done | Fewer delays from background programs and Windows 11 efficiency cores |
 | Build | Restore `-O3 -DNDEBUG` when the CMake cache has lost it (host `CMakeLists.txt`). | done | Intro movies 5 → 30 FPS on the affected build; protects every future build |
 | CPU | Keep CTR, XER, CR and reserved PowerPC registers in C++ locals (`config/mkvsdcu_codegen.toml`). The host compiler can then keep them in registers instead of reloading the context struct. `non_argument_as_local` crashed at startup and stays off. | done | Stable over a 6-minute attract soak; main-thread idle share rose from 76% to 79%; unlocked 129-132 → 133 FPS (GPU-bound, within noise). Matters most on slower CPUs |
 | CPU | The game waits for frames with `Sleep(0)` loops (the main thread) and by spinning on the GPU ring read pointer (the render thread), so two cores stay busy even with headroom. A short real sleep in `XThread::Delay`, or a midasm hook adding a pause to `sub_827E1410`, could save power and free cores for SMT siblings. | idea | Lower power and heat; no FPS change expected on 6+ core CPUs |
 | CPU | `non_volatile_as_local` and `skip_lr` codegen options. | idea | Larger CPU gain; needs the game's setjmp/longjmp addresses mapped first |
-| GPU | Render target path: the SDK picks host render targets (RTV) on NVIDIA/AMD; ROV is "currently much slower" per the SDK. Exposed as F1 > Graphics > Render target emulation. | done | Keep Automatic unless debugging |
-| GPU | Occlusion queries, resolve readback, memexport readback and per-frame page-state refresh are now switchable (F1 > Graphics > Accuracy). | measure | Each can cut GPU/CPU sync; check visuals |
-| GPU | Vulkan backend compiled in (F1 > Graphics > Graphics API). | measure | Driver-dependent; compare with the CSV log |
-| GPU | AMD FidelityFX (CAS, FSR 1/2/3) compiled in (F1 > Graphics > Upscaling filter). FSR 1 at 1x internal scale behaves as a sharpener; pair it with a window larger than the render. The SDK labels FSR 2/3 experimental: it has no real motion vectors or depth, so it synthesizes them and may fall back to spatial FSR. | done, measure | Sharper upscaled output for little cost |
+| GPU | Render target path: the SDK picks host render targets (RTV) on NVIDIA/AMD; ROV is "currently much slower" per the SDK. Exposed as F1 > Advanced > Render targets. | done | Keep Automatic unless debugging |
+| GPU | Occlusion queries, resolve readback, memexport readback and per-frame page-state refresh are switchable (F1 > Advanced > Accuracy). | done | Measured unlocked on the attract loop: resolve readback none + occlusion off + memexport readback off gave 128.0 FPS against 128.3 with defaults. No gain here, so keep the defaults |
+| GPU | Vulkan backend compiled in (F1 > Graphics > Graphics API). | done | Works on the GTX 1650 SUPER: title screen at a steady 60. The attract demo fights stall (frames down to 0-50 FPS) while its pipeline cache fills: 179 → 325 stored pipelines over three sessions, against 1073 for D3D12. It looks like it builds pipelines synchronously. D3D12 stays the default |
+| GPU | AMD FidelityFX (CAS, FSR 1/2/3) compiled in (F1 > Display > Upscaling). FSR 1 at 1x internal scale behaves as a sharpener; pair it with a window larger than the render. The SDK labels FSR 2/3 experimental: it has no real motion vectors or depth, so it synthesizes them and may fall back to spatial FSR. | done | Sharper upscaled output for little cost. CAS, FSR 2 and FSR 3 all ran at 60 FPS in a 75 s smoke test with no errors |
 | Overlay | With any ImGui dialog open the presenter repaints at the monitor rate plus the game's rate (205 Hz on a 144 Hz display). Keep the overlay off when measuring pure GPU cost. | known | Small GPU cost while the overlay is open |
 | Stability | Recompiler missed functions only reachable through vtables; `scripts/find-function-seeds.py` scans the loaded image and added 154 entries (including the `0x826AF018` crash). | done | Fewer "unregistered function" crashes in untested paths |
 | Stability | Launching the game minimized crashes inside `rexruntime.dll` during startup (SDK issue). The launcher never starts it minimized. | known | - |

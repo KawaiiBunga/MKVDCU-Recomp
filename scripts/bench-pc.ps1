@@ -3,8 +3,9 @@ param(
     # Label for this run; the CSV is copied to <OutDir>\<Label>.csv
     [Parameter(Mandatory)][string]$Label,
     [ValidateRange(20, 3600)][int]$Seconds = 150,
-    # Extra game flags, e.g. '--no-port_timer_resolution'
-    [string[]]$GameArgs = @(),
+    # Extra game flags separated by spaces, e.g. '--no-vsync --port_gpu_backend=vulkan'.
+    # One string, because powershell -File cannot pass arrays.
+    [string]$GameArgs = '',
     [string]$OutDir = '',
     [string]$GameDataRoot = '',
     # Summarise only the last N seconds (steady state after loading).
@@ -28,7 +29,8 @@ $before = @(Get-ChildItem $logs -Filter 'perf-*.csv' -ErrorAction SilentlyContin
 
 $arguments = @('--no-fullscreen', '--audio_mute', '--port_perf_csv', '--no-port_perf_overlay',
     '--gpu_plugin', 'xenos', '--game_data_root', "`"$GameDataRoot`"", '--user_data_root', "`"$user`"",
-    '--cache_root', "`"$cache`"", '--log_file', "`"$(Join-Path $OutDir "$Label.log")`"") + $GameArgs
+    '--cache_root', "`"$cache`"", '--log_file', "`"$(Join-Path $OutDir "$Label.log")`"") +
+    @($GameArgs -split '[\s,]+' | Where-Object { $_ })
 $process = Start-Process $exe -ArgumentList $arguments -PassThru
 Start-Sleep -Seconds $Seconds
 if ($process.HasExited) { throw "Game exited early (code $($process.ExitCode)); see $(Join-Path $OutDir "$Label.log")" }

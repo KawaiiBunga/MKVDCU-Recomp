@@ -1,38 +1,51 @@
-# PC build and runtime
+# PC build (developers)
 
-## Verified local setup
+Players don't need any of this; the launcher does it (see [Getting started](GETTING_STARTED.md)). This page is for working on the port from a checkout.
 
-| Component | Local version or location |
+## Setup
+
+| Component | Version or location |
 | --- | --- |
-| ReXGlue SDK | `c94f5ebdcb3c9d1a460ca48e04f9758448f8d518` (`0.10.0-dev.gc94f5eb`) in ignored `references/rexglue-sdk/` |
-| Host tools | Windows AMD64, Clang 22.1.8, CMake 4.4.3, Ninja |
-| Game input | Ignored `user-game-files/work/mkvsdcu/`, copied from one legal retail base dump |
-| PC project | `targets/mkvsdcu/private/rexglue-host/` |
-| GPU | Official `rexgpu-xenos` plugin using Direct3D 12; tested on NVIDIA GTX 1650 SUPER |
-| Audio and input | Stereo endpoint and Xbox One controller through ReXGlue/SDL |
+| ReXGlue SDK | `c94f5ebdcb3c9d1a460ca48e04f9758448f8d518` (`0.10.0-dev`), checked out at `references/rexglue-sdk/` and installed to `out/install/win-amd64` (built with `-DREXGLUE_USE_VULKAN=ON -DREXGLUE_ENABLE_FIDELITYFX=ON`) |
+| Compiler | LLVM/Clang 22.1.8, CMake 4.x, Ninja |
+| Microsoft | Visual Studio 2022 or Build Tools with MSVC v143 and a Windows 11 SDK (headers and libraries only; clang does the compiling) |
+| Game | A retail dump staged at `user-game-files/work/mkvsdcu/` (`scripts/stage-game-data.ps1 "<dump>"`) |
 
-The exact XEX, content inventory, and hashes are in the local ignored `targets/mkvsdcu/reports/bring-up.json` and `host-bringup.md`. The staged executable is title ID `4D5707E9`, media ID `6153914C`, version `0.0.0.1`, with no title update or companion XEX/DLL. Generated PPC output stays ignored. The verified indirect function addresses are tracked in `config/mkvsdcu_functions.toml` and apply only to the XEX whose SHA-256 is recorded there.
+The supported `default.xex` is title `4D5707E9`, media `6153914C`, version `0.0.0.1`, SHA-256 `2955F2E2BE61EC1948CD2FD3538AD45BEB04772F5EBD5E0FB1BFDE484748E5A7`. The function list in `config/mkvsdcu_functions.toml` belongs to that file only.
 
-## Build and launch here
+## Build and run
 
 ```powershell
-.\scripts\doctor.ps1 -Mode pc
-.\scripts\build-pc.ps1
+.\scripts\build-pc.ps1 -Parallel 12
 .\scripts\run-pc.ps1
 ```
 
-The build script verifies the exact supported XEX SHA-256, writes an ignored local manifest for the selected game folder, runs ReXGlue codegen when its inputs change, configures the Windows Release preset, and builds `mkvsdcu.exe`. CMake's build step updates the codegen stamp without repeating the same full XEX scan. It accepts `-GameDataRoot` and `-SdkRoot`, which the launcher passes after validation. Direct CMake builds can restore SDK-managed codegen with `-DMKVSDCU_CODEGEN_MANAGED_EXTERNALLY=OFF`. The launch script uses `--gpu_plugin xenos` and `--no-audio_mute`, points at the ignored game, user, and cache directories, and saves a uniquely named log. It does not enable online services.
+`build-pc.ps1` checks the XEX hash, writes a local manifest for the game folder, runs ReXGlue codegen when its inputs changed, configures the release preset and builds `out/build/win-amd64-release/mkvsdcu.exe`. `run-pc.ps1` starts it windowed with separate user and cache folders and a new log.
 
-The packaged launcher is built with `scripts/package-launcher.ps1`. It embeds the source files, updater helper, and the installed pinned ReXGlue SDK into one `dist/MKVDCU-Recomp.exe`. A user still needs a matching extracted game and local LLVM/Clang, CMake, Ninja, and Microsoft C++ Build Tools with the Windows SDK for the first build. The launcher stores compiled game binaries, saves, settings, logs, and shader caches outside its own EXE. The release ZIP is for the updater; the EXE can be launched directly. Once built, normal play does not run the compiler or require network access.
+The launcher builds the same way in C# (`launcher/MKVDCU.Launcher/Core/BuildPipeline.cs`), using its own toolchain folder and a PATH limited to it and Windows. Keep the two in step when changing the build.
 
-The EXE is a self-contained **launcher**, not yet a zero-prerequisite game builder. LLVM, CMake, and Ninja can be packaged as versioned portable tools after testing their redistribution terms, dependency files, and size. The current native SDK and CMake build also use Microsoft's C++ headers and Windows import libraries. Do not copy a local Visual Studio or Windows SDK installation into the release without establishing redistribution rights for each component. A one-click first build can instead arrange the official Build Tools/Windows SDK installer and report any elevation or download requirement. A fully offline build from only this EXE and the retail game would need a validated toolchain that can be redistributed with the package, including compatible C++ and Windows headers/libraries.
+Useful launch flags (all settable in `mkvsdcu.toml` too):
 
-On the verified SDK revision, a full codegen pass reports that function `0x82F0F908` exceeds its 1 MiB per-file threshold. The pass completes, leaves all 443 generated C++ files unchanged, and the PC build succeeds. Keep this diagnostic in mind if codegen or compilation changes on a newer SDK.
+| Flag | Does |
+| --- | --- |
+| `--port_perf_csv` | Log one line of performance data per second from launch |
+| `--port_profile_after=<s>` | Profile the busiest threads after `s` seconds, writing `profile-*.txt` |
+| `--port_mods="<dir>\|<dir>"` | Mod folders to overlay, highest priority first |
+| `--port_debug_menu_cycle=<s>` | Open the F1 menu at startup and switch tabs every `s` seconds (for screenshots) |
+| `--no-vsync` | Unlock game timing (the game runs faster than normal) |
 
-When a run fails with `Call to invalid or unregistered function at guest address`, `scripts/advance-functions.ps1` can record **only that observed address** in the function config, regenerate, rebuild, and relaunch. Review each proposed address before committing the config. Review the log if the process exits for any other reason. A clean window close is a normal end to a play test.
+`scripts/bench-pc.ps1 -Label x -Seconds 150 -GameArgs '--no-vsync'` runs a measured, unattended session. See [Performance](PERFORMANCE.md).
 
-## Fresh clone limitations
+## Crashes from missing functions
 
-The repo tracks the host app source, CMake setup, manifest, exact-XEX function addresses, and build/launch scripts. It does **not** ship the Xbox executable, assets, generated C++, binaries, runtime cache, or the SDK checkout. A new checkout needs a legally obtained dump matching the recorded SHA-256 and an installed ReXGlue SDK to reproduce the current build. Another XEX revision needs fresh analysis; do not reuse these addresses or invent an update requirement.
+`Call to invalid or unregistered function at guest address 0x...` means the recompiler missed a function that is reached only through a pointer. `scripts/advance-functions.ps1` adds that one observed address, regenerates, rebuilds and relaunches. `scripts/find-function-seeds.py` finds such functions in bulk from a dump of the loaded image (`MKVDCU_DUMP_IMAGE=<file>`). Review every address before committing it.
 
-The local SDK checkout needed a Windows-only `libmspack` source-selection fix because cabextract symlinks materialized as text files. That change is confined to the ignored SDK checkout; no game or ReXGlue runtime logic was patched to reach the verified Arcade match.
+## Codegen options
+
+`config/mkvsdcu_codegen.toml` keeps CTR, XER, CR and reserved registers in C++ locals, which lets the compiler hold them in registers. `non_argument_as_local` crashes this game at startup and stays off. See the file for details.
+
+## Notes
+
+- A full codegen pass reports function `0x82F0F908` over the 1 MiB per-file threshold. It is harmless.
+- The SDK checkout needs a Windows-only `libmspack` source fix (cabextract symlinks become text files), and FidelityFX's `ffx_api_dll.rc` must be UTF-8 for `llvm-rc`. Both are local SDK changes; no game logic is patched.
+- The host `CMakeLists.txt` restores `-O3 -DNDEBUG` if a CMake cache ever loses its release flags. An unoptimised build runs the intro movies at 5 FPS.

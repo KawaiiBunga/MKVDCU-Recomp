@@ -20,10 +20,13 @@
 
 #include "host_tweaks.h"
 #include "input/controller_filter.h"
+#include "mods/mod_overlay.h"
 #include "port_menu/port_config.h"
 #include "port_menu/port_menu.h"
 #include "telemetry/perf_overlay.h"
 #include "telemetry/system_telemetry.h"
+
+REXCVAR_DEFINE_STRING(port_version, "dev", "Port", "Port release shown in the menu (set by the launcher)");
 
 MkvsdcuApp::~MkvsdcuApp() = default;
 
@@ -119,6 +122,7 @@ void MkvsdcuApp::OnPostSetup() {
   });
   host_.sampler = sampler_.get();
   host_.profiler = &profiler_;
+  host_.mods_loaded = mod_overlay::Install(runtime()->file_system(), mod_overlay::EnabledMods());
   host_tweaks::Install();
   if (rex::cvar::Query<bool>("port_perf_csv")) sampler_->SetCsvLogging(true, host_.log_dir);
   if (const int delay = rex::cvar::Query<int32_t>("port_profile_after"); delay > 0) {
@@ -139,6 +143,9 @@ void MkvsdcuApp::OnPostSetup() {
     input->SetActiveCallback([this]() {
       return port_menu_ == nullptr && !imgui_drawer()->GetIO().WantCaptureMouse;
     });
+  }
+  if (rex::cvar::Query<int32_t>("port_debug_menu_cycle") > 0) {
+    app_context().CallInUIThreadDeferred([this] { OpenPortMenu(); });
   }
   if (rex::cvar::Query<bool>("port_perf_overlay")) {
     app_context().CallInUIThreadDeferred([this] { ShowPerfOverlay(true); });

@@ -1,37 +1,63 @@
 # Getting started
 
-MKVDCU-Recomp currently targets **Windows PC**. The local build uses the retail Xbox 360 base executable identified in [Status](STATUS.md). Switch packaging research is retained separately and does not run the game.
+## What you need
 
-## Launcher path
+- Windows 10 (version 1809 or later) or Windows 11, 64-bit
+- A graphics card with Direct3D 12 support
+- About 15 GB of free disk space: 6 GB for the game files, about 4 GB for Microsoft's C++ Build Tools, and 3 GB for the build
+- An internet connection for the first setup and for updates. Playing needs no connection.
+- Your own copy of **Mortal Kombat vs. DC Universe** for Xbox 360, retail release, without title updates
 
-Run the packaged `MKVDCU-Recomp.exe` or build one with `scripts/package-launcher.ps1`. It is a self-contained Windows launcher that includes its updater, the port build files, and the pinned ReXGlue SDK. Select your extracted game folder, verify it, then choose **Build Game** and **Play**. The game folder stays where it is. Press **F1** during play for the first port menu.
+## 1. Get the game files
 
-The selected directory must contain `default.xex` plus `Asset/`, `Config/`, `Localization/`, and `Movies/`. The launcher accepts only the retail base executable with SHA-256 `2955F2E2BE61EC1948CD2FD3538AD45BEB04772F5EBD5E0FB1BFDE484748E5A7`. It will show an unsupported-revision message for another XEX.
+The launcher needs the game's files in a normal folder: `default.xex` plus the `Asset`, `Config`, `Localization` and `Movies` folders.
 
-Local compilation still requires LLVM/Clang, CMake, Ninja, and Microsoft C++ Build Tools with the Windows SDK on the PC. The first build can take several minutes. The launcher keeps the native game build under the selected install root, saves and config under the user root, and shader cache under the cache root. These can be changed on **Setup** with Browse buttons. Leave the optional ReXGlue SDK override empty to use the copy inside the EXE. After a successful build, normal play works offline.
+- **From your disc:** make an ISO of your disc with a tool that supports Xbox 360 discs, then extract the ISO with [extract-xiso](https://github.com/XboxDev/extract-xiso) (`extract-xiso -x game.iso`).
+- **From your console's hard drive:** copy the installed game folder to your PC.
 
-## Existing prepared workspace
+Keep this folder somewhere permanent, for example `D:\Games\MKvsDC`. The launcher never changes it.
 
-From the repository root in PowerShell:
+## 2. Run the launcher
 
-```powershell
-.\scripts\doctor.ps1 -Mode pc
-.\scripts\build-pc.ps1
-.\scripts\run-pc.ps1
-```
+Download `MKVDCU-Recomp.exe` from the [latest release](https://github.com/KawaiiBunga/MKVDCU-Recomp/releases/latest) and put it anywhere you like, for example a `MKVDCU-Recomp` folder. It is the only file you need; it updates itself.
 
-`run-pc.ps1` starts a windowed offline game with the Xenos GPU plugin, controller support, audio enabled, and a separate log. The script prints the log path and process ID. The game files, generated code, build output, and runtime data are all local and ignored by Git.
+The launcher isn't code-signed yet, so on first launch Windows SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**. The file's SHA-256 is listed in the release's `release.json` if you want to check it.
 
-## Preparing your own dump
+## 3. Follow the three steps on Play
 
-Supply a **legally obtained, complete, extracted Xbox 360 retail game directory** containing `default.xex`, `Asset/`, `Movies/`, configuration, and localization files. Keep the original outside this repository and unchanged. This project is tied to one exact XEX revision; a different region, title update, or prototype requires separate analysis and function addresses.
+The **Setup** card on the right shows what is done. The big button always does the next step.
 
-```powershell
-.\scripts\stage-game-data.ps1 "D:\My MK vs DC Universe Dump"
-```
+1. **Choose game folder.** Pick the folder from step 1. The launcher checks it is the supported retail version; a different version or a missing folder shows what's wrong.
+2. **Install build tools.** This installs two things once:
+   - **Microsoft C++ Build Tools and the Windows SDK** (about 3 GB), with Microsoft's own installer. Windows asks for permission, and Microsoft's progress window appears. Microsoft doesn't allow these to be bundled.
+   - **Compiler tools** (LLVM, CMake and Ninja, 130 MB). These are unpacked into the launcher's own folder and don't change your system.
+3. **Build game.** Turns your game's Xbox 360 code into a Windows program. The first build takes 5 to 20 minutes, depending on your CPU. **Show build log** shows what it's doing.
 
-This validates the root-level `XEX2` signature, copies files to an **empty** ignored `user-game-files/work/mkvsdcu/` directory, and writes SHA-256 hashes to an ignored report. It does not apply title updates or create a working recompilation by itself. A fresh clone also needs the ReXGlue SDK, a matching XEX, codegen, and a host build; see [PC build details](PC_BUILD.md).
+Then press **Play**.
 
-## What is currently verified
+## Playing
 
-The Windows host booted and completed an Arcade match with an Xbox controller and sound on 22 September 2026. Other modes, long sessions, other PCs, and Switch gameplay have not been validated. The launcher and first F1 menu implementation are being validated now; see [Status](STATUS.md) and [Roadmap](ROADMAP.md).
+| Key or button | Does |
+| --- | --- |
+| F1, or hold Back + Start | Settings: display mode, resolution, upscaling, graphics, controls, audio |
+| F2 | Performance overlay |
+| LB / RB or Page Up / Page Down | Switch tabs in the settings menu |
+
+Settings save automatically. Settings marked **restart** apply the next time you start the game.
+
+## Updates and mods
+
+When a new version is out, the Play page shows **Update**. The launcher replaces itself, then rebuilds only what changed. Pick **Stable** or **Preview** updates in Settings.
+
+The **Mods** page installs mods from the list or from a `.zip`, turns them on and off, and sets their order. See [Making mods](MODDING.md).
+
+## Where things are
+
+| What | Where |
+| --- | --- |
+| Launcher settings, compiler tools, mods | `%LOCALAPPDATA%\MKVDCU-Recomp` |
+| PC build | `%LOCALAPPDATA%\MKVDCU-Recomp\install` (changeable in Settings) |
+| Saves, game settings, logs | `%LOCALAPPDATA%\MKVDCU-Recomp\user` (changeable) |
+| Shader cache | `%LOCALAPPDATA%\MKVDCU-Recomp\cache` (changeable) |
+
+To uninstall, delete the launcher and `%LOCALAPPDATA%\MKVDCU-Recomp`. Microsoft's Build Tools can be removed in **Settings → Apps** ("Visual Studio Build Tools 2022").

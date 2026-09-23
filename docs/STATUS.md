@@ -1,37 +1,30 @@
-# Status — 22 September 2026
+# Status — 23 September 2026
 
-## PC: playable path verified
+## Game
 
-- The retail Xbox 360 base build of Mortal Kombat vs. DC Universe (`4D5707E9`, media ID `6153914C`, XEX version `0.0.0.1`) is recompiled with ReXGlue `0.10.0-dev.gc94f5eb` and runs as a Windows AMD64 application.
-- The host uses the official Xenos GPU plugin with Direct3D 12. Graphics pipelines and shader storage initialize, the Xbox One controller is detected, and audio plays through the PC endpoint.
-- On 22 September, the user completed an entire Arcade mode match with sound and no crash. The run then closed cleanly when the window was closed. The local log records `Window closing, shutting down` and `Execution complete`, with no fatal entry.
-- Several earlier starts and gameplay runs exposed missing runtime-computed function targets. Those exact addresses were added to the tracked exact-XEX function config, followed by codegen and rebuild. The current executable includes those verified entries.
+- The retail Xbox 360 release (`default.xex` title `4D5707E9`, media `6153914C`, version `0.0.0.1`) is recompiled with ReXGlue `0.10.0-dev.gc94f5eb` and runs as a 64-bit Windows program with Direct3D 12 (Vulkan optional).
+- Verified on one PC (GTX 1650 SUPER): full Arcade matches with an Xbox controller and sound, clean exit. Holds 60 FPS at 1x (720p); unlocked timing reaches ~130 FPS, limited by the GPU. See [Performance](PERFORMANCE.md).
+- Stability: missing-function crashes seen so far are fixed, including `0x826AF018` and 153 more functions found by scanning the image for pointer tables. Untested modes may still hit new ones; each report with a log is quick to fix.
+- Not yet tested: other modes in depth, long sessions, saves across versions, AMD/Intel GPUs, other controllers.
 
-This is one tested gameplay path on one PC. Other modes, characters, arenas, longer sessions, save behavior, different controllers and GPUs, and performance targets remain to be tested. A successful launch or a process staying alive alone does not establish playability.
+## In-game menu (F1)
 
-## Windows launcher and port menu
+Seven tabs: Display, Graphics, Controls, Audio, Performance, Advanced and About. All settings come from one catalog, save automatically, and show a **restart** tag when they apply at the next launch. The help line at the bottom describes the row under the cursor. Every tab was checked on screen on 23 September with the menu's screenshot mode. The controller features (deadzones, remapping, rumble, stick-to-D-pad, the Back + Start chord) are built but haven't been tested with a physical controller. F2 shows the performance overlay; F1 → Performance has a CSV log and a CPU profiler.
 
-- The WPF launcher validates the exact supported XEX SHA-256 and required game content folders before building or launching. It stores separate install, user, and cache paths and copies the three native host binaries into the install root after a successful local build.
-- The release packaging script produces one self-contained `MKVDCU-Recomp.exe`. The EXE embeds the port source, updater helper, and pinned ReXGlue SDK. Its GitHub Releases ZIP contains the same EXE and a compatibility manifest for verified updates.
-- The build script now uses .NET SHA-256 hashing compatible with Windows PowerShell 5.1. A Windows PowerShell invocation completed codegen, CMake, and native build with the staged retail XEX on this machine. The script also avoids the duplicate full XEX scan in CMake; a verified no-change build now reports `ninja: no work to do`.
-- The F1 port menu has Display, Graphics, Performance, Controls, Audio, System and About pages, each split into settings that apply live and settings saved for the next launch. Settings are written by a checked TOML writer (the SDK serializer left Windows paths unescaped, so saved settings never loaded); broken configs are repaired at startup. Controller deadzones, remapping, rumble strength, stick-to-D-pad and a Back+Start menu chord go through a host input filter; they are built but not yet tested with a physical controller.
-- F2 toggles a performance overlay fed by a `VdSwap` hook (true game frame rate, frame-time percentiles, hitches, game output resolution) plus per-thread CPU, GPU engine load, VRAM and RAM, with a bottleneck readout and optional per-second CSV log.
-- Frame rate, measured 2026-09-23 in an Arcade match: the simulation advances once per presented frame. With the guest vblank unlocked the game rendered 72–73 FPS and the round clock ran ~27% fast. There is no safe FPS unlock without engine-level changes, and presenter-side frame interpolation has no motion or depth data to work from. At 1x/720p on a GTX 1650 Super the game holds 60 FPS with the GPU ~90% busy and two guest threads near a full core each.
-- Rendering options, 23 September: the SDK was rebuilt with Vulkan and AMD FidelityFX. The menu now picks the graphics API (Direct3D 12 or Vulkan), GPU adapter, output filter (bilinear, CAS, FSR 1, FSR 2/3 quality modes and sharpening), render target path, accuracy and readback toggles, and shader/texture cache limits. It also sets audio volume and surround downmix, plus CPU scheduling (priority, timer resolution, power throttling). Direct3D 11 and OpenGL/GLES have no backend in the SDK; see [Performance](PERFORMANCE.md).
-- Stability, 23 September: the `0x826AF018` "unregistered function" crash, and 153 more targets reachable only through vtables or callbacks, were found by `scripts/find-function-seeds.py` and added to the function config. A build with them ran 13 minutes idle; the previous build crashed after ~5.
-- The launcher and port menu are new. A full end-to-end build, update, F1 interaction, and match using the packaged EXE have not yet been verified on a fresh Windows PC.
+## Mods
 
-The packaged EXE does not contain the user's game, LLVM/Clang, CMake/Ninja, or Microsoft C++ Build Tools and Windows SDK. Those local build prerequisites remain the main one-click installation gap. The launcher UI now uses a custom title bar and release-channel buttons, setup browse controls, direct status copy, and original metal/versus styling.
+File-replacement mods work: the host adds mod files into the game's file tree at startup, and the player's game folder is never written. Verified on 23 September by replacing an intro movie with a different-sized file; the replacement played. See [Making mods](MODDING.md). `mods/index.json` is empty until the first mods are listed.
 
-## Switch: toolchain only
+## Launcher and releases
 
-`switch/toolchain-test/` builds a small libnx NRO. There is no linked ReXGlue game runtime, Xenos rendering path, or playable Switch build yet. The host runtime and menu/configuration layer should be stabilized before that port.
+- One self-contained `MKVDCU-Recomp.exe` (~140 MB). It needs no admin rights, uses no PowerShell, and has no embedded extra executables.
+- First run: choose the game folder, then install build tools. That means Microsoft's signed Build Tools installer (only if MSVC is missing), plus a 130 MB LLVM/CMake/Ninja zip from the release. Then build and play.
+- A full build with only the downloaded toolchain and Microsoft's libraries (PATH limited to them) compiled and linked all 237 steps in 5.8 minutes.
+- Updates: `release.json` per GitHub release, self-replacing EXE, incremental rebuilds. `scripts/release.ps1` builds and publishes a release.
+- Not yet done: a published release and an update between two published releases; a run on a PC without Visual Studio (Microsoft's installer path); code signing.
 
-## Known work
+## Switch
 
-1. Continue PC gameplay coverage and fix concrete crashes from logs. Keep each function address tied to the exact staged XEX.
-2. Test and complete the in-game port menu, including timing, audio, and controller mapping. Keep options capability-aware so Switch can use the same design later.
-3. Profile and validate frame pacing, resolution changes, rendering enhancements, controller mapping, and save/config behavior.
-4. Port the runtime, graphics, audio, filesystem, and input layers to Switch; package and test the actual game on device.
+`switch/toolchain-test/` builds a small libnx program. There is no Switch game build.
 
-See [Roadmap](ROADMAP.md) for the next feature phase and [PC build](PC_BUILD.md) for the local workflow.
+See [Roadmap](ROADMAP.md) for what's next.
