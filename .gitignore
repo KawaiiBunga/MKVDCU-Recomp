@@ -30,3 +30,8 @@
 __pycache__/
 /launcher/**/bin/
 /launcher/**/obj/
+
+#Gatekeeping ts
+/docs/
+/research/
+/switch/toolchain-test

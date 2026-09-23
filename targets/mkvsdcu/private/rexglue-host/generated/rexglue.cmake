@@ -114,16 +114,10 @@ endmacro()
 # codegen, including one a project assembles itself rather than taking the
 # library rexglue_setup_target() builds. The stamp comes first: the DEPFILE
 # names it.
-set(_mkvsdcu_codegen_command $<TARGET_FILE:rex::rexglue>)
-set(_mkvsdcu_codegen_arguments codegen "${MKVSDCU_CODEGEN_MANIFEST}")
-if(MKVSDCU_CODEGEN_MANAGED_EXTERNALLY)
-    set(_mkvsdcu_codegen_command "${CMAKE_COMMAND}")
-    set(_mkvsdcu_codegen_arguments -E touch "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp")
-endif()
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.build.stamp"
            ${REXGLUE_ENTRYPOINT_GENERATED_SOURCES}
-    COMMAND ${_mkvsdcu_codegen_command} ${_mkvsdcu_codegen_arguments}
+    COMMAND $<TARGET_FILE:rex::rexglue> codegen ${CMAKE_CURRENT_SOURCE_DIR}/mkvsdcu_manifest.toml
     DEPFILE "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/codegen.d"
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Generating recompiled code for mkvsdcu"
