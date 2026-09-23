@@ -182,9 +182,13 @@ internal sealed class BuildService
         if (process.ExitCode != 0) throw new InvalidOperationException($"Build failed with exit code {process.ExitCode}. See the build log.");
 
         var output = Path.Combine(repo, "targets", "mkvsdcu", "private", "rexglue-host", "out", "build", "win-amd64-release");
-        var names = new[] { "mkvsdcu.exe", "rexruntime.dll", "rexgpu-xenos.dll" };
-        foreach (var name in names)
+        var required = new[] { "mkvsdcu.exe", "rexruntime.dll", "rexgpu-xenos.dll" };
+        foreach (var name in required)
             if (!File.Exists(Path.Combine(output, name))) throw new FileNotFoundException("Build output missing " + name);
+        // The SDK build decides which runtime DLLs sit next to the game (for
+        // example the FidelityFX library), so ship every one it copied.
+        var names = required.Concat(Directory.EnumerateFiles(output, "*.dll").Select(Path.GetFileName)
+            .OfType<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var gameBase = Path.Combine(settings.InstallRoot, "game");
         Directory.CreateDirectory(gameBase);
         var staging = Path.Combine(gameBase, "staging-" + Guid.NewGuid().ToString("N"));

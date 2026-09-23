@@ -11,6 +11,7 @@ $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = Join-Path $workspaceRoot 'targets\mkvsdcu\private\rexglue-host'
 $manifest = Join-Path $projectRoot 'mkvsdcu_manifest.local.toml'
 $config = Join-Path $projectRoot 'config\mkvsdcu_functions.toml'
+$codegenOptions = Join-Path $projectRoot 'config\mkvsdcu_codegen.toml'
 if (-not $GameDataRoot) { $GameDataRoot = Join-Path $workspaceRoot 'user-game-files\work\mkvsdcu' }
 if (-not $SdkRoot) { $SdkRoot = Join-Path $workspaceRoot 'references\rexglue-sdk' }
 $GameDataRoot = [System.IO.Path]::GetFullPath($GameDataRoot)
@@ -40,7 +41,7 @@ foreach ($tool in @('clang.exe', 'clang++.exe', 'ninja.exe')) {
     }
 }
 
-foreach ($required in @($config, $gameXex, $rexglue, $cmake)) {
+foreach ($required in @($config, $codegenOptions, $gameXex, $rexglue, $cmake)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Required file is missing: $required. See docs/PC_BUILD.md."
     }
@@ -71,7 +72,7 @@ game_root = $rootLiteral
 [entrypoint]
 file_path = $xexLiteral
 out_directory_path = "generated/default"
-includes = ["config/mkvsdcu_functions.toml"]
+includes = ["config/mkvsdcu_functions.toml", "config/mkvsdcu_codegen.toml"]
 "@
 $manifestChanged = -not (Test-Path -LiteralPath $manifest -PathType Leaf) -or
     (Get-Content -LiteralPath $manifest -Raw).Trim() -ne $manifestText.Trim()
@@ -83,7 +84,7 @@ $codegenNeeded = $manifestChanged -or -not (Test-Path -LiteralPath $generatedHea
     -not (Test-Path -LiteralPath $codegenStamp -PathType Leaf)
 if (-not $codegenNeeded) {
     $stampTime = (Get-Item -LiteralPath $codegenStamp).LastWriteTimeUtc
-    $codegenNeeded = @($config, $gameXex, $rexglue) | Where-Object {
+    $codegenNeeded = @($config, $codegenOptions, $gameXex, $rexglue) | Where-Object {
         (Get-Item -LiteralPath $_).LastWriteTimeUtc -gt $stampTime
     } | Select-Object -First 1
 }

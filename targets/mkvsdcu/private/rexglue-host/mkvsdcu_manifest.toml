@@ -8,4 +8,4 @@ game_root = "../../../../user-game-files/work/mkvsdcu"
 [entrypoint]
 file_path = "../../../../user-game-files/work/mkvsdcu/default.xex"
 out_directory_path = "generated/default"
-includes = ["config/mkvsdcu_functions.toml"]
+includes = ["config/mkvsdcu_functions.toml", "config/mkvsdcu_codegen.toml"]

@@ -112,18 +112,19 @@
             <Setter Property="Padding" Value="24"/>
         </Style>
     </Window.Resources>
-    <Border BorderBrush="#77736E" BorderThickness="1">
+    <Border x:Name="WindowFrame" BorderBrush="#77736E" BorderThickness="1">
         <Grid>
             <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="30"/></Grid.RowDefinitions>
             <Grid Grid.Row="0" Background="#1B1D20" MouseLeftButtonDown="TitleBar_Drag">
-                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="42"/><ColumnDefinition Width="42"/></Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="42"/><ColumnDefinition Width="42"/><ColumnDefinition Width="42"/></Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0">
                     <Border Width="8" Height="8" Background="#A9473E" Margin="0,0,11,0"/>
                     <TextBlock Text="MKVDCU-RECOMP" FontWeight="Black" FontSize="12"/>
                     <TextBlock Text="   PC LAUNCHER" Foreground="#999691" FontSize="11"/>
                 </StackPanel>
                 <Button Grid.Column="1" Content="—" Background="Transparent" Foreground="#A3B2C0" BorderThickness="0" Click="Minimize_Click"/>
-                <Button Grid.Column="2" Content="×" Background="Transparent" Foreground="White" BorderThickness="0" FontSize="20" Click="Close_Click"/>
+                <Button x:Name="MaximizeButton" Grid.Column="2" Content="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="11" Background="Transparent" Foreground="#A3B2C0" BorderThickness="0" ToolTip="Maximize" Click="Maximize_Click"/>
+                <Button Grid.Column="3" Content="×" Background="Transparent" Foreground="White" BorderThickness="0" FontSize="20" Click="Close_Click"/>
             </Grid>
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="94"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>

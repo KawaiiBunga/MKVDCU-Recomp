@@ -26,11 +26,29 @@ $files = @(
     'targets\mkvsdcu\private\rexglue-host\CMakePresets.json',
     'targets\mkvsdcu\private\rexglue-host\mkvsdcu_manifest.toml',
     'targets\mkvsdcu\private\rexglue-host\config\mkvsdcu_functions.toml',
+    'targets\mkvsdcu\private\rexglue-host\config\mkvsdcu_codegen.toml',
     'targets\mkvsdcu\private\rexglue-host\src\main.cpp',
     'targets\mkvsdcu\private\rexglue-host\src\mkvsdcu_app.h',
     'targets\mkvsdcu\private\rexglue-host\src\mkvsdcu_app.cpp',
+    'targets\mkvsdcu\private\rexglue-host\src\port_host.h',
+    'targets\mkvsdcu\private\rexglue-host\src\host_tweaks.h',
+    'targets\mkvsdcu\private\rexglue-host\src\host_tweaks.cpp',
+    'targets\mkvsdcu\private\rexglue-host\src\port_menu\settings_catalog.h',
+    'targets\mkvsdcu\private\rexglue-host\src\port_menu\settings_catalog.cpp',
     'targets\mkvsdcu\private\rexglue-host\src\port_menu\port_menu.h',
-    'targets\mkvsdcu\private\rexglue-host\src\port_menu\port_menu.cpp'
+    'targets\mkvsdcu\private\rexglue-host\src\port_menu\port_menu.cpp',
+    'targets\mkvsdcu\private\rexglue-host\src\port_menu\port_config.h',
+    'targets\mkvsdcu\private\rexglue-host\src\port_menu\port_config.cpp',
+    'targets\mkvsdcu\private\rexglue-host\src\input\controller_filter.h',
+    'targets\mkvsdcu\private\rexglue-host\src\input\controller_filter.cpp',
+    'targets\mkvsdcu\private\rexglue-host\src\telemetry\frame_telemetry.h',
+    'targets\mkvsdcu\private\rexglue-host\src\telemetry\frame_telemetry.cpp',
+    'targets\mkvsdcu\private\rexglue-host\src\telemetry\system_telemetry.h',
+    'targets\mkvsdcu\private\rexglue-host\src\telemetry\system_telemetry.cpp',
+    'targets\mkvsdcu\private\rexglue-host\src\telemetry\perf_overlay.h',
+    'targets\mkvsdcu\private\rexglue-host\src\telemetry\perf_overlay.cpp',
+    'targets\mkvsdcu\private\rexglue-host\src\telemetry\guest_profiler.h',
+    'targets\mkvsdcu\private\rexglue-host\src\telemetry\guest_profiler.cpp'
 )
 foreach ($relative in $files) {
     $source = Join-Path $root $relative

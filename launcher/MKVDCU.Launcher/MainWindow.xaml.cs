@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -66,6 +68,41 @@ public partial class MainWindow : Window
         else DragMove();
     }
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void Maximize_Click(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
+        var maximized = WindowState == WindowState.Maximized;
+        MaximizeButton.Content = maximized ? "" : "";
+        MaximizeButton.ToolTip = maximized ? "Restore" : "Maximize";
+        WindowFrame.BorderThickness = new Thickness(maximized ? 0 : 1);
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WindowProc);
+    }
+
+    // A borderless window maximizes over the taskbar unless it is told the
+    // monitor's work area.
+    private static IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int WM_GETMINMAXINFO = 0x0024;
+        if (msg != WM_GETMINMAXINFO) return IntPtr.Zero;
+        var monitor = NativeMethods.MonitorFromWindow(hwnd, NativeMethods.MONITOR_DEFAULTTONEAREST);
+        var info = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
+        if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfo(monitor, ref info)) return IntPtr.Zero;
+        var limits = Marshal.PtrToStructure<NativeMethods.MINMAXINFO>(lParam);
+        limits.ptMaxPosition.X = info.rcWork.Left - info.rcMonitor.Left;
+        limits.ptMaxPosition.Y = info.rcWork.Top - info.rcMonitor.Top;
+        limits.ptMaxSize.X = info.rcWork.Right - info.rcWork.Left;
+        limits.ptMaxSize.Y = info.rcWork.Bottom - info.rcWork.Top;
+        Marshal.StructureToPtr(limits, lParam, true);
+        return IntPtr.Zero;
+    }
     private void Close_Click(object sender, RoutedEventArgs e) { _buildCancellation?.Cancel(); Close(); }
 
     private void BrowseGame_Click(object sender, RoutedEventArgs e)
