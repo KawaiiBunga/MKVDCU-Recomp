@@ -52,7 +52,7 @@ internal sealed class LauncherSettings
     public string UpdateChannel { get; set; } = "stable";
     public string BuiltXexHash { get; set; } = "";
     public string BuiltVersion { get; set; } = "";
-    public string InstalledVersion { get; set; } = "local";
+    public string InstalledVersion { get; set; } = EmbeddedBundle.Version;
 }
 
 internal static class SettingsStore
@@ -70,7 +70,9 @@ internal static class SettingsStore
                 if (loaded?.SchemaVersion == 1)
                 {
                     var marker = Path.Combine(loaded.InstallRoot, "launcher", "current", "installed-version.txt");
-                    if (File.Exists(marker)) loaded.InstalledVersion = File.ReadAllText(marker).Trim();
+                    loaded.InstalledVersion = EmbeddedBundle.Version != "local"
+                        ? EmbeddedBundle.Version
+                        : File.Exists(marker) ? File.ReadAllText(marker).Trim() : "local";
                     return loaded;
                 }
             }
@@ -135,15 +137,19 @@ internal sealed class BuildService
 {
     public async Task BuildAsync(LauncherSettings settings, Action<string> log, CancellationToken token)
     {
-        var repo = Paths.FindRepository() ?? throw new InvalidOperationException(
-            "Build sources are unavailable. Run this launcher from a MKVDCU-Recomp source checkout until a builder bundle is published.");
         var validated = await GameValidator.ValidateAsync(settings.GameFolder, token);
         if (!validated.Valid) throw new InvalidOperationException(validated.Heading + ": " + validated.Detail);
-        var sdkInstall = Path.Combine(settings.SdkRoot, "out", "install", "win-amd64");
-        if (!File.Exists(Path.Combine(sdkInstall, "bin", "rexglue.exe"))) sdkInstall = settings.SdkRoot;
-        if (string.IsNullOrWhiteSpace(settings.SdkRoot) || !File.Exists(Path.Combine(sdkInstall, "bin", "rexglue.exe")))
-            throw new InvalidOperationException("ReXGlue SDK is missing. Choose its install folder or a checkout containing out/install/win-amd64.");
         ValidateDestinations(settings);
+        log("PREPARING EMBEDDED BUILDER");
+        var repo = EmbeddedBundle.HasBuilder ? await Task.Run(() => EmbeddedBundle.EnsureBuilder(settings.InstallRoot), token) :
+            Paths.FindRepository() ?? throw new InvalidOperationException("Build sources are unavailable.");
+        var sdkRoot = string.IsNullOrWhiteSpace(settings.SdkRoot)
+            ? Path.Combine(repo, "references", "rexglue-sdk", "out", "install", "win-amd64")
+            : settings.SdkRoot;
+        var sdkInstall = Path.Combine(sdkRoot, "out", "install", "win-amd64");
+        if (!File.Exists(Path.Combine(sdkInstall, "bin", "rexglue.exe"))) sdkInstall = sdkRoot;
+        if (!File.Exists(Path.Combine(sdkInstall, "bin", "rexglue.exe")))
+            throw new InvalidOperationException("ReXGlue SDK is missing from the embedded builder. Choose an SDK install folder in Setup.");
         var script = Path.Combine(repo, "scripts", "build-pc.ps1");
         var psi = new ProcessStartInfo("powershell.exe")
         {
@@ -154,7 +160,7 @@ internal sealed class BuildService
             CreateNoWindow = true
         };
         foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
-                     "-GameDataRoot", settings.GameFolder, "-SdkRoot", settings.SdkRoot })
+                     "-GameDataRoot", settings.GameFolder, "-SdkRoot", sdkRoot })
             psi.ArgumentList.Add(arg);
         var tools = new[] { @"C:\Program Files\LLVM\bin", @"C:\Program Files\CMake\bin",
             Path.Combine(sdkInstall, "bin") }
@@ -176,9 +182,13 @@ internal sealed class BuildService
         if (process.ExitCode != 0) throw new InvalidOperationException($"Build failed with exit code {process.ExitCode}. See the build log.");
 
         var output = Path.Combine(repo, "targets", "mkvsdcu", "private", "rexglue-host", "out", "build", "win-amd64-release");
-        var names = new[] { "mkvsdcu.exe", "rexruntime.dll", "rexgpu-xenos.dll" };
-        foreach (var name in names)
+        var required = new[] { "mkvsdcu.exe", "rexruntime.dll", "rexgpu-xenos.dll" };
+        foreach (var name in required)
             if (!File.Exists(Path.Combine(output, name))) throw new FileNotFoundException("Build output missing " + name);
+        // The SDK build decides which runtime DLLs sit next to the game (for
+        // example the FidelityFX library), so ship every one it copied.
+        var names = required.Concat(Directory.EnumerateFiles(output, "*.dll").Select(Path.GetFileName)
+            .OfType<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var gameBase = Path.Combine(settings.InstallRoot, "game");
         Directory.CreateDirectory(gameBase);
         var staging = Path.Combine(gameBase, "staging-" + Guid.NewGuid().ToString("N"));
@@ -330,19 +340,25 @@ internal sealed class UpdateService
 
     public static void StartInstall(string verifiedZip, string installRoot, string tag)
     {
-        var source = AppContext.BaseDirectory;
-        var helper = Path.Combine(source, "MKVDCU.Updater.exe");
-        if (!File.Exists(helper)) throw new FileNotFoundException(
-            "Updater helper is missing from this launcher package. The downloaded release remains verified for later installation.", helper);
         var tempDir = Path.Combine(Paths.AppData, "update-helper", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
-        foreach (var extension in new[] { ".exe", ".dll", ".deps.json", ".runtimeconfig.json" })
+        string helper;
+        if (System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceInfo("MKVDCU.Updater.exe") != null)
+            helper = EmbeddedBundle.ExtractUpdater(tempDir);
+        else
         {
-            var name = "MKVDCU.Updater" + extension;
-            var input = Path.Combine(source, name);
-            if (File.Exists(input)) File.Copy(input, Path.Combine(tempDir, name));
+            var source = AppContext.BaseDirectory;
+            helper = Path.Combine(tempDir, "MKVDCU.Updater.exe");
+            if (!File.Exists(Path.Combine(source, "MKVDCU.Updater.exe")))
+                throw new FileNotFoundException("Updater helper is missing from this launcher build.");
+            foreach (var extension in new[] { ".exe", ".dll", ".deps.json", ".runtimeconfig.json" })
+            {
+                var name = "MKVDCU.Updater" + extension;
+                var input = Path.Combine(source, name);
+                if (File.Exists(input)) File.Copy(input, Path.Combine(tempDir, name));
+            }
         }
-        var psi = new ProcessStartInfo(Path.Combine(tempDir, "MKVDCU.Updater.exe"))
+        var psi = new ProcessStartInfo(helper)
         {
             WorkingDirectory = tempDir,
             UseShellExecute = false,

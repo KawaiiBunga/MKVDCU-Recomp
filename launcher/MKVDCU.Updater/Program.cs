@@ -35,9 +35,8 @@ try
         throw new InvalidDataException("Backup launcher is a reparse point.");
 
     ExtractVerifiedArchive(archive, staging);
-    if (!File.Exists(Path.Combine(staging, "MKVDCU.Launcher.exe")) ||
-        !File.Exists(Path.Combine(staging, "MKVDCU.Updater.exe")))
-        throw new InvalidDataException("Release package lacks launcher or updater executable.");
+    if (!File.Exists(Path.Combine(staging, "MKVDCU-Recomp.exe")))
+        throw new InvalidDataException("Release package lacks MKVDCU-Recomp.exe.");
     var manifestPath = Path.Combine(staging, "release-manifest.json");
     if (!File.Exists(manifestPath)) throw new InvalidDataException("Release manifest is missing.");
     using (var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath)))
@@ -58,7 +57,7 @@ try
     try
     {
         Directory.Move(staging, current);
-        var launched = Process.Start(new ProcessStartInfo(Path.Combine(current, "MKVDCU.Launcher.exe"))
+        var launched = Process.Start(new ProcessStartInfo(Path.Combine(current, "MKVDCU-Recomp.exe"))
         {
             WorkingDirectory = current,
             UseShellExecute = false
@@ -73,7 +72,7 @@ try
         if (Directory.Exists(backup))
         {
             Directory.Move(backup, current);
-            Process.Start(new ProcessStartInfo(Path.Combine(current, "MKVDCU.Launcher.exe"))
+            Process.Start(new ProcessStartInfo(Path.Combine(current, "MKVDCU-Recomp.exe"))
             {
                 WorkingDirectory = current, UseShellExecute = false
             });

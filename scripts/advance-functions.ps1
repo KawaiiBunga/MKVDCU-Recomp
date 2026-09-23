@@ -39,7 +39,10 @@ foreach ($required in @($GameDataRoot, $ConfigPath, $ManifestPath, $ReXGlue, $CM
 $gameXex = Join-Path $GameDataRoot 'default.xex'
 if (-not (Test-Path -LiteralPath $gameXex -PathType Leaf)) { throw "Required game executable does not exist: $gameXex" }
 $expectedXexHash = '2955F2E2BE61EC1948CD2FD3538AD45BEB04772F5EBD5E0FB1BFDE484748E5A7'
-$actualXexHash = (Get-FileHash -LiteralPath $gameXex -Algorithm SHA256).Hash
+$xexStream = [IO.File]::OpenRead($gameXex)
+$sha256 = [Security.Cryptography.SHA256]::Create()
+try { $actualXexHash = [BitConverter]::ToString($sha256.ComputeHash($xexStream)).Replace('-', '') }
+finally { $xexStream.Dispose(); $sha256.Dispose() }
 if ($actualXexHash -ne $expectedXexHash) {
     throw "Game XEX SHA-256 $actualXexHash does not match the function config's $expectedXexHash."
 }

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -7,5 +7,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(BuilderBundlePath)' != ''">
+    <EmbeddedResource Include="$(BuilderBundlePath)" LogicalName="MKVDCU.BuilderBundle.zip" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UpdaterBinaryPath)' != ''">
+    <EmbeddedResource Include="$(UpdaterBinaryPath)" LogicalName="MKVDCU.Updater.exe" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ReleaseManifestPath)' != ''">
+    <EmbeddedResource Include="$(ReleaseManifestPath)" LogicalName="MKVDCU.ReleaseManifest.json" />
+  </ItemGroup>
 
 </Project>
