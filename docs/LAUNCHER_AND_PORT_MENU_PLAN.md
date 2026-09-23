@@ -1,6 +1,12 @@
 # Launcher and port menu plan
 
-Status: design plan, 22 September 2026. The PC host currently boots the matching retail base XEX and has completed one Arcade match. The launcher, updater, and custom port menu described here have not been implemented.
+Status: implementation in progress, 22 September 2026. The PC host has completed one Arcade match. The Windows launcher, updater helper, single EXE packaging, and first F1 port menu are implemented; remaining features and fresh-machine validation are tracked below.
+
+## Current implementation
+
+The launcher has Play, Library, Build, Setup, and Update pages with original metal and smoke styling and restrained red, blue, and brass accents. It verifies the exact XEX, runs local codegen and CMake, installs the three native host binaries, launches the game with separate user/cache roots, and checks GitHub Releases. `scripts/package-launcher.ps1` embeds port sources, the pinned ReXGlue SDK, and the update helper in one self-contained EXE. Its update ZIP carries that EXE plus a compatibility manifest. The update helper verifies the manifest and stages a replacement with rollback on early startup failure.
+
+The F1 overlay has Display, Graphics, Performance, Controls, and System pages. It supports fullscreen, VSync, render scale, anisotropy, output filter, and keyboard face-button mappings using SDK configuration. FPS presets, true output resolution selection/downscaling, full controller remapping, a controller menu chord, audio options, an imported game-library copy, and a shared typed settings schema remain planned. LLVM/Clang, CMake/Ninja, and Microsoft C++ Build Tools with the Windows SDK are still external requirements for compiling on an end-user PC. Bundling the portable tools and providing an official first-run installer flow for Microsoft components are the next setup tasks. The updater has not been tested against a published release or a fresh-machine install.
 
 ## Product contract
 
@@ -26,7 +32,7 @@ Before distributing a builder or native output, review redistribution terms for 
 
 ## Experience and visual direction
 
-The interface should feel like a neutral "realm gate" companion to the game: two opposing color fields meet at a thin central seam. Use original geometric forms, metal/stone texture, soft smoke, and a subtle scanline/light pass. Do not lift game logos, character art, fonts, audio, or screenshots into the launcher without permission. The same design language appears in the in-game overlay, with simpler motion to preserve frame time.
+The interface should echo the game's dark menu presentation: charcoal metal, smoky light, strong condensed headings, and opposing red and blue accents. Use original geometric forms and typography. Do not lift game logos, character art, fonts, audio, or screenshots into the launcher without permission. The same design language appears in the in-game overlay, with simpler motion to preserve frame time.
 
 | Token | Direction |
 | --- | --- |
@@ -44,7 +50,7 @@ The interface should feel like a neutral "realm gate" companion to the game: two
 │  PLAY      LIBRARY      BUILD      SETTINGS      UPDATES     │
 ├───────────────────────┬────────────────────────────────────┤
 │                       │  GAME READY / NEEDS VALIDATION      │
-│  Realm-gate artwork   │  Source: D:\Games\MKVSDCU          │
+│  Original versus art  │  Source: D:\Games\MKVSDCU          │
 │  and current build    │  XEX: supported retail base         │
 │  status               │  Build: current / outdated / absent │
 │                       │                                    │
@@ -54,7 +60,7 @@ The interface should feel like a neutral "realm gate" companion to the game: two
 └────────────────────────────────────────────────────────────┘
 ```
 
-The main action changes from **Select Game Folder** to **Build** to **Play** as each gate passes. A failed gate stays visible with a short reason and a "details" expander; no opaque spinner. The Build screen shows current phase, elapsed time, per-phase log, cancel behavior, disk estimate, and a final diagnostic summary. The Updates screen shows current/new versions, channel, notes, download size, and "Install after game exits." Settings has Installation, Game data, Build/cache, Updates, and Diagnostics sections with a browse button and a reset-to-default option for each path.
+The main action changes from **Select Game Folder** to **Build** to **Play** as each phase completes. A failed phase stays visible with a short reason and a details expander. The Build screen shows current phase, elapsed time, per-phase log, cancel behavior, disk estimate, and a final diagnostic summary. The Updates screen shows current/new versions, channel, notes, download size, and "Install after game exits." Settings has Installation, Game data, Build/cache, Updates, and Diagnostics sections with a browse button and a reset-to-default option for each path.
 
 ### In-game Port Menu layout
 
@@ -119,7 +125,7 @@ For each setting, record `id`, type/range, default, underlying SDK binding or ho
 
 ## GitHub Releases updater
 
-The configured origin is `KawaiiBunga/MKVDCU-Recomp`. Stable checks use GitHub's latest published full-release endpoint; preview checks list releases and select an explicit prerelease. Git tags without releases do not enter the feed. A 404, private repo, no releases, or offline state displays **No update information** and leaves Play available. The public releases page was not available unauthenticated during this planning pass, so the first published accessible release and its asset format remain a prerequisite.
+The configured origin is `KawaiiBunga/MKVDCU-Recomp`. Stable checks use GitHub's latest published full-release endpoint; preview checks list releases and select an explicit prerelease. Git tags without releases do not enter the feed. An empty feed or no matching Windows asset shows **No release available**; network or API errors show **Offline / feed error**. Play remains available. A published accessible release and its asset format still need an end-to-end update test.
 
 Each release should include a small, versioned `release-manifest.json` with app version, channel, minimum launcher version, supported XEX hashes, SDK/toolchain revision, platform, artifact names/sizes/SHA-256, migration version, and whether codegen/rebuild is required. The release pipeline builds the launcher/builder, tests it against a local private game fixture without uploading game files, produces signed or otherwise verifiable artifacts, and publishes notes plus manifest/assets. GitHub's release asset API exposes a SHA-256 digest; compare it to the downloaded bytes and the manifest. Use HTTPS and fixed GitHub hosts, enforce size limits, reject archive traversal/symlinks, and never execute a partially downloaded file.
 

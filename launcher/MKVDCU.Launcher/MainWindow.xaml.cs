@@ -26,7 +26,8 @@ public partial class MainWindow : Window
         UserBox.Text = _settings.UserRoot;
         CacheBox.Text = _settings.CacheRoot;
         SdkBox.Text = _settings.SdkRoot;
-        ChannelBox.SelectedIndex = _settings.UpdateChannel == "preview" ? 1 : 0;
+        if (_settings.UpdateChannel == "preview") PreviewChannelButton.IsChecked = true;
+        else StableChannelButton.IsChecked = true;
         _ready = true;
         ShowPanel("play");
         RefreshBuildState();
@@ -37,8 +38,8 @@ public partial class MainWindow : Window
         };
     }
 
-    private static readonly Brush Good = new SolidColorBrush(Color.FromRgb(92, 216, 228));
-    private static readonly Brush Bad = new SolidColorBrush(Color.FromRgb(238, 108, 88));
+    private static readonly Brush Good = new SolidColorBrush(Color.FromRgb(187, 164, 125));
+    private static readonly Brush Bad = new SolidColorBrush(Color.FromRgb(192, 95, 78));
 
     private void ShowPanel(string panel)
     {
@@ -47,6 +48,14 @@ public partial class MainWindow : Window
         BuildPanel.Visibility = panel == "build" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = panel == "settings" ? Visibility.Visible : Visibility.Collapsed;
         UpdatesPanel.Visibility = panel == "updates" ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var nav in new[] { PlayNav, LibraryNav, BuildNav, SettingsNav, UpdatesNav })
+        {
+            var active = (string)nav.Tag == panel;
+            nav.Background = new SolidColorBrush(active ? Color.FromRgb(54, 41, 40) : Colors.Transparent);
+            nav.BorderBrush = active ? Bad : Brushes.Transparent;
+            nav.BorderThickness = new Thickness(active ? 3 : 0, 0, 0, 0);
+            nav.Foreground = active ? Brushes.White : new SolidColorBrush(Color.FromRgb(184, 181, 175));
+        }
     }
 
     private void Nav_Click(object sender, RoutedEventArgs e) => ShowPanel((string)((Button)sender).Tag);
@@ -68,6 +77,22 @@ public partial class MainWindow : Window
             _ = VerifyAsync();
         }
     }
+
+    private void BrowseFolder(TextBox destination, string title)
+    {
+        var dialog = new OpenFolderDialog { Title = title };
+        if (Directory.Exists(destination.Text)) dialog.InitialDirectory = destination.Text;
+        if (dialog.ShowDialog(this) == true) destination.Text = dialog.FolderName;
+    }
+
+    private void BrowseInstall_Click(object sender, RoutedEventArgs e) =>
+        BrowseFolder(InstallBox, "Choose game build location");
+    private void BrowseUser_Click(object sender, RoutedEventArgs e) =>
+        BrowseFolder(UserBox, "Choose save and settings location");
+    private void BrowseCache_Click(object sender, RoutedEventArgs e) =>
+        BrowseFolder(CacheBox, "Choose shader cache location");
+    private void BrowseSdk_Click(object sender, RoutedEventArgs e) =>
+        BrowseFolder(SdkBox, "Choose ReXGlue SDK install or checkout");
 
     private async void Verify_Click(object sender, RoutedEventArgs e) => await VerifyAsync();
 
@@ -106,7 +131,8 @@ public partial class MainWindow : Window
                         _settings.BuiltVersion == _settings.InstalledVersion;
         HeroBuildState.Text = installed ? "READY TO PLAY" : "BUILD REQUIRED";
         HeroBuildState.Foreground = installed ? Good : Bad;
-        PlayButton.IsEnabled = installed;
+        PlayButton.Content = installed ? "PLAY GAME   →" : "BUILD TO PLAY   →";
+        PlayButton.IsEnabled = true;
     }
 
     private void SaveSettings_Click(object sender, RoutedEventArgs e) => SaveLocations();
@@ -117,7 +143,8 @@ public partial class MainWindow : Window
             _settings.InstallRoot = Path.GetFullPath(InstallBox.Text.Trim());
             _settings.UserRoot = Path.GetFullPath(UserBox.Text.Trim());
             _settings.CacheRoot = Path.GetFullPath(CacheBox.Text.Trim());
-            _settings.SdkRoot = Path.GetFullPath(SdkBox.Text.Trim());
+            _settings.SdkRoot = string.IsNullOrWhiteSpace(SdkBox.Text)
+                ? "" : Path.GetFullPath(SdkBox.Text.Trim());
             if (!string.IsNullOrWhiteSpace(GameFolderBox.Text))
             {
                 _settings.GameFolder = Path.GetFullPath(GameFolderBox.Text.Trim());
@@ -168,7 +195,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             BuildStatus.Text = "BUILD FAILED";
-            FooterStatus.Text = "BUILD FAILED — SEE TELEMETRY";
+            FooterStatus.Text = "BUILD FAILED — SEE BUILD LOG";
             BuildLog.AppendText(Environment.NewLine + "ERROR: " + ex.Message);
         }
         finally
@@ -186,6 +213,13 @@ public partial class MainWindow : Window
     private async void Play_Click(object sender, RoutedEventArgs e)
     {
         if (!await VerifyAsync()) { ShowPanel("library"); return; }
+        if (!File.Exists(Paths.GameExe(_settings.InstallRoot)) ||
+            !_settings.BuiltXexHash.Equals(Paths.ExpectedXexHash, StringComparison.OrdinalIgnoreCase) ||
+            _settings.BuiltVersion != _settings.InstalledVersion)
+        {
+            ShowPanel("build");
+            return;
+        }
         try
         {
             var process = BuildService.Launch(_settings);
@@ -211,15 +245,16 @@ public partial class MainWindow : Window
         finally { process.Dispose(); RefreshBuildState(); }
     }
 
-    private void Channel_Changed(object sender, SelectionChangedEventArgs e)
+    private void Channel_Changed(object sender, RoutedEventArgs e)
     {
-        if (!_ready || ChannelBox.SelectedItem is not ComboBoxItem item) return;
-        _settings.UpdateChannel = (string)item.Tag;
+        if (!_ready || sender is not RadioButton { IsChecked: true } choice) return;
+        _settings.UpdateChannel = (string)choice.Tag;
         SettingsStore.Save(_settings);
         _release = null;
         DownloadButton.IsEnabled = false;
         UpdateStatus.Text = "CHANNEL CHANGED";
         UpdateDetail.Text = "Check releases to see the newest compatible build.";
+        ReleaseNotes.Text = "Check for updates to load release notes.";
     }
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(silent: false);
@@ -235,7 +270,8 @@ public partial class MainWindow : Window
             if (_release == null)
             {
                 UpdateStatus.Text = "NO RELEASE AVAILABLE";
-                UpdateDetail.Text = "The feed is empty, unavailable, or has no Windows package. Local play still works.";
+                UpdateDetail.Text = "No compatible Windows release was found for this channel.";
+                ReleaseNotes.Text = "No release notes available.";
                 DownloadButton.IsEnabled = false;
                 return;
             }
@@ -250,6 +286,7 @@ public partial class MainWindow : Window
         {
             UpdateStatus.Text = "OFFLINE / FEED ERROR";
             UpdateDetail.Text = ex.Message;
+            ReleaseNotes.Text = "Release notes could not be loaded.";
             DownloadButton.IsEnabled = false;
         }
     }

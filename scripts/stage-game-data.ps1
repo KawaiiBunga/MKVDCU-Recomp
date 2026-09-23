@@ -45,8 +45,11 @@ if (-not (Test-Path -LiteralPath $workingXex -PathType Leaf)) {
   throw "Working-copy XEX was not created: $workingXex"
 }
 $hashes = Get-ChildItem -LiteralPath $work -Recurse -File | ForEach-Object {
-  $h = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
-  [PSCustomObject]@{ Path = $_.FullName.Substring($work.Length).TrimStart('\'); Bytes = $_.Length; SHA256 = $h.Hash }
+  $fileStream = [IO.File]::OpenRead($_.FullName)
+  $sha256 = [Security.Cryptography.SHA256]::Create()
+  try { $hash = [BitConverter]::ToString($sha256.ComputeHash($fileStream)).Replace('-', '') }
+  finally { $fileStream.Dispose(); $sha256.Dispose() }
+  [PSCustomObject]@{ Path = $_.FullName.Substring($work.Length).TrimStart('\'); Bytes = $_.Length; SHA256 = $hash }
 }
 $report = [PSCustomObject]@{
   target = $Target; created_utc = (Get-Date).ToUniversalTime().ToString('o');

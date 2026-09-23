@@ -1,153 +1,220 @@
 <Window x:Class="MKVDCU.Launcher.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="MKVDCU-Recomp // The Gate" Width="1280" Height="800"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="MKVDCU-Recomp" Width="1280" Height="800"
         MinWidth="1040" MinHeight="650" WindowStyle="None" ResizeMode="CanResize"
-        Background="#090D14" Foreground="#F0EDE6" FontFamily="Segoe UI">
+        Background="#090A0D" Foreground="#EBE9E3" FontFamily="Segoe UI">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome GlassFrameThickness="0" CaptionHeight="0"
+                            ResizeBorderThickness="6" CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
     <Window.Resources>
         <Style x:Key="Label" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#8194A6"/>
+            <Setter Property="Foreground" Value="#A9A8A3"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="FontSize" Value="11"/>
         </Style>
         <Style x:Key="Action" TargetType="Button">
-            <Setter Property="Background" Value="#5CD8E4"/>
-            <Setter Property="Foreground" Value="#0B1119"/>
+            <Setter Property="Background" Value="#A9473E"/>
+            <Setter Property="Foreground" Value="#F7F1E8"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Padding" Value="20,13"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.86"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.7"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Background" Value="#24262A"/><Setter Property="Foreground" Value="#797A7C"/><Setter TargetName="Chrome" Property="Opacity" Value="1"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="Secondary" TargetType="Button" BasedOn="{StaticResource Action}">
-            <Setter Property="Background" Value="#283340"/>
-            <Setter Property="Foreground" Value="#EBECEB"/>
+            <Setter Property="Background" Value="#303236"/>
+            <Setter Property="Foreground" Value="#E8E6E0"/>
+            <Setter Property="BorderBrush" Value="#66645F"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style x:Key="PathBrowse" TargetType="Button" BasedOn="{StaticResource Secondary}">
+            <Setter Property="MinWidth" Value="92"/>
+            <Setter Property="Padding" Value="12,9"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="ChannelChoice" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="#C6C3BD"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="ChoiceBorder" Background="#24262A" BorderBrush="#5C5D60" BorderThickness="1" Padding="18,11" MinWidth="112">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ChoiceBorder" Property="BorderBrush" Value="#C5A977"/></Trigger>
+                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="ChoiceBorder" Property="Background" Value="#8E3B37"/><Setter TargetName="ChoiceBorder" Property="BorderBrush" Value="#C05F4E"/><Setter Property="Foreground" Value="#FFF2E3"/></Trigger>
+                            <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsChecked" Value="True"/><Condition Property="Tag" Value="preview"/></MultiTrigger.Conditions><Setter TargetName="ChoiceBorder" Property="Background" Value="#37526A"/><Setter TargetName="ChoiceBorder" Property="BorderBrush" Value="#7390A4"/></MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <BooleanToVisibilityConverter x:Key="VisibleWhenTrue"/>
+        <Style x:Key="Disclosure" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="#D3D0CA"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="DisclosureBorder" Background="#292B2E" BorderBrush="#5B5D60" BorderThickness="1" Padding="12,9">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock x:Name="DisclosureArrow" Text="▸" Foreground="#BBA47D" Margin="0,0,10,0"/>
+                                <ContentPresenter VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="DisclosureArrow" Property="Text" Value="▾"/><Setter TargetName="DisclosureBorder" Property="BorderBrush" Value="#BBA47D"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="DisclosureBorder" Property="Background" Value="#333538"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="Nav" TargetType="Button" BasedOn="{StaticResource Secondary}">
             <Setter Property="Width" Value="72"/><Setter Property="Height" Value="62"/>
             <Setter Property="Margin" Value="0,4"/><Setter Property="Padding" Value="2"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#9AACBC"/>
+            <Setter Property="Foreground" Value="#B8B5AF"/>
             <Setter Property="FontSize" Value="10"/>
         </Style>
         <Style x:Key="Field" TargetType="TextBox">
-            <Setter Property="Background" Value="#0E151F"/>
-            <Setter Property="Foreground" Value="#E8EDF0"/>
-            <Setter Property="BorderBrush" Value="#3B4A5A"/>
+            <Setter Property="Background" Value="#101114"/>
+            <Setter Property="Foreground" Value="#E9E6E0"/>
+            <Setter Property="BorderBrush" Value="#57585B"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,9"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
         <Style x:Key="Card" TargetType="Border">
-            <Setter Property="Background" Value="#1B242F"/>
-            <Setter Property="BorderBrush" Value="#344557"/>
+            <Setter Property="Background" Value="#202226"/>
+            <Setter Property="BorderBrush" Value="#5B5D60"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="24"/>
         </Style>
     </Window.Resources>
-    <Border BorderBrush="#405264" BorderThickness="1">
+    <Border BorderBrush="#77736E" BorderThickness="1">
         <Grid>
             <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="30"/></Grid.RowDefinitions>
-            <Grid Grid.Row="0" Background="#141C27" MouseLeftButtonDown="TitleBar_Drag">
+            <Grid Grid.Row="0" Background="#1B1D20" MouseLeftButtonDown="TitleBar_Drag">
                 <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="42"/><ColumnDefinition Width="42"/></Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0">
-                    <Border Width="8" Height="8" Background="#EE6C58" Margin="0,0,11,0"/>
+                    <Border Width="8" Height="8" Background="#A9473E" Margin="0,0,11,0"/>
                     <TextBlock Text="MKVDCU-RECOMP" FontWeight="Black" FontSize="12"/>
-                    <TextBlock Text="   //   THE GATE" Foreground="#8496A7" FontSize="11"/>
+                    <TextBlock Text="   PC LAUNCHER" Foreground="#999691" FontSize="11"/>
                 </StackPanel>
                 <Button Grid.Column="1" Content="—" Background="Transparent" Foreground="#A3B2C0" BorderThickness="0" Click="Minimize_Click"/>
                 <Button Grid.Column="2" Content="×" Background="Transparent" Foreground="White" BorderThickness="0" FontSize="20" Click="Close_Click"/>
             </Grid>
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="94"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <Border Background="#131D27" BorderBrush="#2B3B4B" BorderThickness="0,0,1,0">
+                <Border Background="#17191C" BorderBrush="#4C4C4D" BorderThickness="0,0,1,0">
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Bottom" Text="PC // 01" Style="{StaticResource Label}" HorizontalAlignment="Center" Margin="0,0,0,18"/>
+                        <TextBlock DockPanel.Dock="Bottom" Text="PC" Style="{StaticResource Label}" HorizontalAlignment="Center" Margin="0,0,0,18"/>
                         <StackPanel HorizontalAlignment="Center" Margin="0,22,0,0">
                             <Grid Width="55" Height="64" Margin="0,0,0,25">
-                                <Path Data="M27,2 L52,17 L52,47 L27,62 L2,47 L2,17 Z" Fill="#1E3542" Stroke="#6DE3EB" StrokeThickness="2"/>
-                                <Path Data="M27,2 L27,62 M2,17 L52,47 M52,17 L2,47" Stroke="#638596" StrokeThickness="1"/>
-                                <Path Data="M27,16 L40,32 L27,48 L14,32 Z" Fill="#EE6C58"/>
+                                <Path Data="M7,8 L27,2 L47,8 L53,30 L47,54 L27,62 L7,54 L1,30 Z" Fill="#29292B" Stroke="#8E8981" StrokeThickness="2"/>
+                                <Path Data="M9,13 L27,34 L45,13 M9,49 L27,30 L45,49" Stroke="#A9473E" StrokeThickness="3"/>
+                                <Path Data="M27,18 L36,30 L27,44 L18,30 Z" Fill="#B39258"/>
                             </Grid>
-                            <Button Style="{StaticResource Nav}" Tag="play" Click="Nav_Click"><StackPanel><TextBlock Text="◆" FontSize="24" HorizontalAlignment="Center"/><TextBlock Text="PLAY" HorizontalAlignment="Center"/></StackPanel></Button>
-                            <Button Style="{StaticResource Nav}" Tag="library" Click="Nav_Click"><StackPanel><TextBlock Text="▣" FontSize="24" HorizontalAlignment="Center"/><TextBlock Text="GAME" HorizontalAlignment="Center"/></StackPanel></Button>
-                            <Button Style="{StaticResource Nav}" Tag="build" Click="Nav_Click"><StackPanel><TextBlock Text="◇" FontSize="24" HorizontalAlignment="Center"/><TextBlock Text="BUILD" HorizontalAlignment="Center"/></StackPanel></Button>
-                            <Button Style="{StaticResource Nav}" Tag="settings" Click="Nav_Click"><StackPanel><TextBlock Text="⚙" FontSize="22" HorizontalAlignment="Center"/><TextBlock Text="SETUP" HorizontalAlignment="Center"/></StackPanel></Button>
-                            <Button Style="{StaticResource Nav}" Tag="updates" Click="Nav_Click"><StackPanel><TextBlock Text="↻" FontSize="24" HorizontalAlignment="Center"/><TextBlock Text="UPDATE" HorizontalAlignment="Center"/></StackPanel></Button>
+                            <Button x:Name="PlayNav" Style="{StaticResource Nav}" Tag="play" Click="Nav_Click"><StackPanel><TextBlock Text="◆" FontSize="24" HorizontalAlignment="Center"/><TextBlock Text="PLAY" HorizontalAlignment="Center"/></StackPanel></Button>
+                            <Button x:Name="LibraryNav" Style="{StaticResource Nav}" Tag="library" Click="Nav_Click"><StackPanel><TextBlock Text="▣" FontSize="24" HorizontalAlignment="Center"/><TextBlock Text="GAME" HorizontalAlignment="Center"/></StackPanel></Button>
+                            <Button x:Name="BuildNav" Style="{StaticResource Nav}" Tag="build" Click="Nav_Click"><StackPanel><TextBlock Text="◇" FontSize="24" HorizontalAlignment="Center"/><TextBlock Text="BUILD" HorizontalAlignment="Center"/></StackPanel></Button>
+                            <Button x:Name="SettingsNav" Style="{StaticResource Nav}" Tag="settings" Click="Nav_Click"><StackPanel><TextBlock Text="⚙" FontSize="22" HorizontalAlignment="Center"/><TextBlock Text="SETUP" HorizontalAlignment="Center"/></StackPanel></Button>
+                            <Button x:Name="UpdatesNav" Style="{StaticResource Nav}" Tag="updates" Click="Nav_Click"><StackPanel><TextBlock Text="↻" FontSize="24" HorizontalAlignment="Center"/><TextBlock Text="UPDATE" HorizontalAlignment="Center"/></StackPanel></Button>
                         </StackPanel>
                     </DockPanel>
                 </Border>
                 <Grid Grid.Column="1" ClipToBounds="True">
-                    <Grid.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#131B26"/><GradientStop Color="#0B1119" Offset="0.6"/><GradientStop Color="#21171D" Offset="1"/></LinearGradientBrush></Grid.Background>
-                    <Canvas IsHitTestVisible="False" Opacity="0.17"><Path Data="M0,530 L780,0 M170,790 L1050,0 M450,790 L1240,0" Stroke="#75D1D9" StrokeThickness="2"/><Path Data="M0,620 L960,0 M130,790 L1150,0" Stroke="#F77863" StrokeThickness="1"/></Canvas>
-                    <Canvas IsHitTestVisible="False" Opacity="0.17">
-                        <Ellipse Canvas.Left="360" Canvas.Top="100" Width="520" Height="520" Stroke="#5CD8E4" StrokeThickness="2"/>
-                        <Ellipse Canvas.Left="390" Canvas.Top="130" Width="460" Height="460" Stroke="#EE6C58" StrokeThickness="1"/>
-                        <Ellipse Canvas.Left="456" Canvas.Top="196" Width="328" Height="328" Stroke="#5CD8E4" StrokeThickness="2"/>
-                        <Path Data="M620,70 L896,360 L620,650 L344,360 Z M620,136 L830,360 L620,584 L410,360 Z M620,70 L620,650 M344,360 L896,360" Stroke="#AFDAE0" StrokeThickness="2"/>
-                        <Path Data="M620,213 L763,360 L620,507 L477,360 Z" Stroke="#EE6C58" StrokeThickness="4"/>
+                    <Grid.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#202125"/><GradientStop Color="#0B0D10" Offset="0.48"/><GradientStop Color="#171A1E" Offset="1"/></LinearGradientBrush></Grid.Background>
+                    <Rectangle IsHitTestVisible="False" Opacity="0.28"><Rectangle.Fill><RadialGradientBrush Center="0.56,0.33" GradientOrigin="0.56,0.33" RadiusX="0.62" RadiusY="0.64"><GradientStop Color="#8E9292" Offset="0"/><GradientStop Color="#303437" Offset="0.35"/><GradientStop Color="#000000" Offset="1"/></RadialGradientBrush></Rectangle.Fill></Rectangle>
+                    <Canvas IsHitTestVisible="False" Opacity="0.23">
+                        <Path Data="M90,120 L570,585 M130,90 L590,540 M1060,105 L670,570 M1020,90 L650,540" Stroke="#959A9D" StrokeThickness="1"/>
+                        <Path Data="M460,0 L600,180 L510,360 L650,565 M875,0 L735,180 L825,360 L685,565" Stroke="#5E6164" StrokeThickness="3"/>
+                        <Path Data="M668,0 L668,730" Stroke="#A19B91" StrokeThickness="1"/>
                     </Canvas>
                     <Grid x:Name="PlayPanel" Margin="52,38,52,34">
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <StackPanel><TextBlock Text="PROJECT // 4D5707E9     •     WINDOWS HOST" Style="{StaticResource Label}" Foreground="#5CD8E4"/><Border Width="52" Height="3" Background="#EE6C58" HorizontalAlignment="Left" Margin="0,16,0,0"/></StackPanel>
+                        <StackPanel><TextBlock Text="MKVDCU-RECOMP  /  PC EDITION" Style="{StaticResource Label}" Foreground="#BBA47D"/><Border Width="52" Height="3" Background="#A9473E" HorizontalAlignment="Left" Margin="0,16,0,0"/></StackPanel>
                         <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="0.8*"/></Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Margin="0,0,22,0">
-                                <TextBlock Text="THE GATE" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontSize="76"/>
-                                <TextBlock Text="IS OPEN." FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontSize="73" Foreground="#5CD8E4" Margin="0,-24,0,0"/>
-                                <TextBlock Text="MORTAL KOMBAT VS. DC UNIVERSE  /  NATIVE PC RECOMP" Style="{StaticResource Label}" TextWrapping="Wrap" Foreground="#B6C7D4" Margin="3,15,0,0"/>
-                                <TextBlock Text="Your game. Your build. One way in." FontSize="18" Foreground="#B9C6CF" Margin="3,24,0,34"/>
-                                <StackPanel Orientation="Horizontal"><Button x:Name="PlayButton" Style="{StaticResource Action}" Content="ENTER THE GAME   →" Click="Play_Click"/><Button Style="{StaticResource Secondary}" Content="VERIFY FILES" Margin="10,0,0,0" Click="Verify_Click"/></StackPanel>
+                                <TextBlock Text="MORTAL KOMBAT" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontStyle="Italic" FontSize="57" Foreground="#E2DED4"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,-10,0,0"><TextBlock Text="VS." FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontStyle="Italic" FontSize="60" Foreground="#A9473E"/><TextBlock Text=" DC UNIVERSE" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontStyle="Italic" FontSize="60" Foreground="#C1C7CA"/></StackPanel>
+                                <Border Height="1" Background="#807B72" Margin="3,14,36,0"/>
+                                <TextBlock Text="PC PORT  /  USE YOUR OWN GAME FILES" Style="{StaticResource Label}" Foreground="#BBA47D" Margin="3,15,0,0"/>
+                                <TextBlock Text="Verify your game, build the PC version, then play." FontSize="17" Foreground="#C7C6C2" Margin="3,24,0,34"/>
+                                <StackPanel Orientation="Horizontal"><Button x:Name="PlayButton" Style="{StaticResource Action}" Content="PLAY GAME   →" Click="Play_Click"/><Button Style="{StaticResource Secondary}" Content="VERIFY FILES" Margin="10,0,0,0" Click="Verify_Click"/></StackPanel>
                                 <TextBlock Text="F1 opens the Port Menu during play" Style="{StaticResource Label}" Margin="3,18,0,0"/>
                             </StackPanel>
                             <Border Grid.Column="1" Style="{StaticResource Card}" VerticalAlignment="Center" Padding="0">
                                 <Grid><Grid.RowDefinitions><RowDefinition Height="5"/><RowDefinition/></Grid.RowDefinitions>
-                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions><Border Background="#EE6C58"/><Border Grid.Column="1" Background="#5CD8E4"/></Grid>
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions><Border Background="#8E3B37"/><Border Grid.Column="1" Background="#37526A"/></Grid>
                                     <StackPanel Grid.Row="1" Margin="25,25,25,28">
-                                        <TextBlock Text="SYSTEM READOUT" Style="{StaticResource Label}" Foreground="#5CD8E4"/>
+                                        <TextBlock Text="GAME STATUS" Style="{StaticResource Label}" Foreground="#BBA47D"/>
                                         <TextBlock x:Name="HeroStatus" Text="AWAITING SCAN" FontFamily="Bahnschrift SemiCondensed" FontWeight="Bold" FontSize="27" Margin="0,20,0,6"/>
-                                        <TextBlock x:Name="HeroDetail" Text="Choose and verify your game folder." Foreground="#AFBECA" TextWrapping="Wrap" MinHeight="45"/>
-                                        <Border BorderBrush="#3C4B58" BorderThickness="0,1,0,0" Margin="0,21,0,18"/>
+                                        <TextBlock x:Name="HeroDetail" Text="Choose and verify your game folder." Foreground="#C1C0BC" TextWrapping="Wrap" MinHeight="45"/>
+                                        <Border BorderBrush="#66635E" BorderThickness="0,1,0,0" Margin="0,21,0,18"/>
                                         <TextBlock Text="GAME DIRECTORY" Style="{StaticResource Label}"/>
-                                        <TextBlock x:Name="HeroGamePath" Text="—" TextTrimming="CharacterEllipsis" Foreground="#DDE7EC" Margin="0,5,0,17"/>
-                                        <TextBlock Text="LOCAL BUILD" Style="{StaticResource Label}"/>
-                                        <TextBlock x:Name="HeroBuildState" Text="NOT INSTALLED" Foreground="#EE6C58" FontWeight="Bold" Margin="0,5,0,0"/>
+                                        <TextBlock x:Name="HeroGamePath" Text="—" TextTrimming="CharacterEllipsis" Foreground="#E6E2DA" Margin="0,5,0,17"/>
+                                        <TextBlock Text="PC BUILD" Style="{StaticResource Label}"/>
+                                        <TextBlock x:Name="HeroBuildState" Text="NOT INSTALLED" Foreground="#C05F4E" FontWeight="Bold" Margin="0,5,0,0"/>
                                     </StackPanel>
                                 </Grid>
                             </Border>
                         </Grid>
-                        <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="RECOMPILATION STATUS  //  LOCAL · OFFLINE AFTER BUILD" Style="{StaticResource Label}"/><TextBlock Grid.Column="1" Text="BUILD 0.1 · PREVIEW" Style="{StaticResource Label}" Foreground="#EE6C58"/></Grid>
                     </Grid>
                     <ScrollViewer x:Name="LibraryPanel" Visibility="Collapsed" Margin="52,38" VerticalScrollBarVisibility="Auto"><StackPanel>
-                        <TextBlock Text="01 / GAME LIBRARY" Style="{StaticResource Label}" Foreground="#5CD8E4"/><TextBlock Text="BRING YOUR GAME" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontSize="49" Margin="0,9,0,0"/>
-                        <TextBlock Text="Select a complete, extracted Xbox 360 retail game folder. The original stays untouched." Foreground="#B4C2CE" FontSize="15" Margin="0,4,0,30"/>
+                        <TextBlock Text="01 / SOURCE" Style="{StaticResource Label}" Foreground="#BBA47D"/><TextBlock Text="GAME FILES" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontStyle="Italic" FontSize="49" Margin="0,9,0,0"/>
+                        <TextBlock Text="Select a complete, extracted Xbox 360 retail game folder. The original stays untouched." Foreground="#C1C0BC" FontSize="15" Margin="0,4,0,30"/>
                         <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="SOURCE FOLDER" Style="{StaticResource Label}"/><Grid Margin="0,10,0,20"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox x:Name="GameFolderBox" Style="{StaticResource Field}"/><Button Grid.Column="1" Style="{StaticResource Secondary}" Content="BROWSE" Margin="10,0,0,0" Click="BrowseGame_Click"/></Grid><Button Style="{StaticResource Action}" Content="VERIFY GAME FILES   →" HorizontalAlignment="Left" Click="Verify_Click"/></StackPanel></Border>
-                        <Border Style="{StaticResource Card}" Margin="0,18,0,0"><StackPanel><TextBlock Text="VALIDATION RESULT" Style="{StaticResource Label}"/><TextBlock x:Name="ValidationHeading" Text="WAITING FOR FOLDER" FontFamily="Bahnschrift SemiCondensed" FontWeight="Bold" FontSize="27" Foreground="#EE6C58" Margin="0,16,0,6"/><TextBlock x:Name="ValidationDetail" Text="The verified PC build uses the retail base XEX." Foreground="#B5C4CF" TextWrapping="Wrap"/></StackPanel></Border>
+                        <Border Style="{StaticResource Card}" Margin="0,18,0,0"><StackPanel><TextBlock Text="VALIDATION RESULT" Style="{StaticResource Label}"/><TextBlock x:Name="ValidationHeading" Text="WAITING FOR FOLDER" FontFamily="Bahnschrift SemiCondensed" FontWeight="Bold" FontSize="27" Foreground="#C05F4E" Margin="0,16,0,6"/><TextBlock x:Name="ValidationDetail" Text="The verified PC build uses the retail base XEX." Foreground="#C1C0BC" TextWrapping="Wrap"/></StackPanel></Border>
                         <TextBlock Text="SUPPORTED / TITLE 4D5707E9 / MEDIA 6153914C / XEX 0.0.0.1" Style="{StaticResource Label}" Margin="3,18,0,0"/>
                     </StackPanel></ScrollViewer>
                     <Grid x:Name="BuildPanel" Visibility="Collapsed" Margin="52,38"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                        <StackPanel><TextBlock Text="02 / NATIVE RECOMPILATION" Style="{StaticResource Label}" Foreground="#5CD8E4"/><TextBlock Text="FORGE THE BUILD" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontSize="49" Margin="0,9,0,0"/><TextBlock Text="Codegen and native compilation run locally against your verified XEX." Foreground="#B4C2CE" FontSize="15" Margin="0,4,0,26"/></StackPanel>
-                        <Border Grid.Row="1" Style="{StaticResource Card}"><Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="BUILD STATUS" Style="{StaticResource Label}"/><TextBlock x:Name="BuildStatus" Text="IDLE" FontFamily="Bahnschrift SemiCondensed" FontWeight="Bold" FontSize="26" Foreground="#5CD8E4" Margin="0,8,0,0"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="BuildButton" Style="{StaticResource Action}" Content="BUILD GAME   →" Click="Build_Click"/><Button x:Name="CancelBuildButton" Style="{StaticResource Secondary}" Content="CANCEL" IsEnabled="False" Margin="10,0,0,0" Click="CancelBuild_Click"/></StackPanel></Grid></Border>
-                        <ProgressBar Grid.Row="2" x:Name="BuildProgress" Height="4" Margin="0,17" Background="#293644" Foreground="#5CD8E4"/>
-                        <Border Grid.Row="3" Style="{StaticResource Card}" Padding="0"><Grid><Grid.RowDefinitions><RowDefinition Height="38"/><RowDefinition/></Grid.RowDefinitions><Border Background="#25313D" Padding="14,10"><TextBlock Text="LIVE BUILD TELEMETRY" Style="{StaticResource Label}" Foreground="#5CD8E4"/></Border><TextBox Grid.Row="1" x:Name="BuildLog" Background="#0D141D" Foreground="#C3D0DB" FontFamily="Consolas" FontSize="12" Padding="14" BorderThickness="0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/></Grid></Border>
+                        <StackPanel><TextBlock Text="02 / BUILD" Style="{StaticResource Label}" Foreground="#BBA47D"/><TextBlock Text="BUILD GAME" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontSize="49" Margin="0,9,0,0"/><TextBlock Text="Create the PC version from your verified game files." Foreground="#C1C0BC" FontSize="15" Margin="0,4,0,26"/></StackPanel>
+                        <Border Grid.Row="1" Style="{StaticResource Card}"><Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="BUILD STATUS" Style="{StaticResource Label}"/><TextBlock x:Name="BuildStatus" Text="IDLE" FontFamily="Bahnschrift SemiCondensed" FontWeight="Bold" FontSize="26" Foreground="#BBA47D" Margin="0,8,0,0"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="BuildButton" Style="{StaticResource Action}" Content="BUILD GAME   →" Click="Build_Click"/><Button x:Name="CancelBuildButton" Style="{StaticResource Secondary}" Content="CANCEL" IsEnabled="False" Margin="10,0,0,0" Click="CancelBuild_Click"/></StackPanel></Grid></Border>
+                        <ProgressBar Grid.Row="2" x:Name="BuildProgress" Height="4" Margin="0,17" Background="#3B3D40" Foreground="#BBA47D"/>
+                        <Border Grid.Row="3" Style="{StaticResource Card}" Padding="0"><Grid><Grid.RowDefinitions><RowDefinition Height="38"/><RowDefinition/></Grid.RowDefinitions><Border Background="#2B2D30" Padding="14,10"><TextBlock Text="BUILD LOG" Style="{StaticResource Label}" Foreground="#BBA47D"/></Border><TextBox Grid.Row="1" x:Name="BuildLog" Background="#111316" Foreground="#D3D0CA" FontFamily="Consolas" FontSize="12" Padding="14" BorderThickness="0" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/></Grid></Border>
                     </Grid>
                     <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" Margin="52,38" VerticalScrollBarVisibility="Auto"><StackPanel>
-                        <TextBlock Text="03 / LOCAL ENVIRONMENT" Style="{StaticResource Label}" Foreground="#5CD8E4"/><TextBlock Text="SET THE STAGE" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontSize="49" Margin="0,9,0,0"/><TextBlock Text="Keep compiled files, saves, and caches in their own places." Foreground="#B4C2CE" FontSize="15" Margin="0,4,0,28"/>
+                        <TextBlock Text="03 / SETUP" Style="{StaticResource Label}" Foreground="#BBA47D"/><TextBlock Text="INSTALL LOCATIONS" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontSize="49" Margin="0,9,0,0"/><TextBlock Text="Choose where the build, saves, and shader cache are stored." Foreground="#C1C0BC" FontSize="15" Margin="0,4,0,28"/>
                         <Border Style="{StaticResource Card}"><StackPanel>
-                            <TextBlock Text="INSTALL ROOT / NATIVE BINARIES" Style="{StaticResource Label}"/><TextBox x:Name="InstallBox" Style="{StaticResource Field}" Margin="0,8,0,18"/>
-                            <TextBlock Text="USER ROOT / SAVES, SETTINGS, LOGS" Style="{StaticResource Label}"/><TextBox x:Name="UserBox" Style="{StaticResource Field}" Margin="0,8,0,18"/>
-                            <TextBlock Text="CACHE ROOT / SHADERS" Style="{StaticResource Label}"/><TextBox x:Name="CacheBox" Style="{StaticResource Field}" Margin="0,8,0,18"/>
-                            <TextBlock Text="REXGLUE SDK INSTALL OR CHECKOUT / BUILD TOOLS" Style="{StaticResource Label}"/><TextBox x:Name="SdkBox" Style="{StaticResource Field}" Margin="0,8,0,20"/>
+                            <TextBlock Text="INSTALL FOLDER  /  GAME BUILD" Style="{StaticResource Label}"/><Grid Margin="0,8,0,18"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox x:Name="InstallBox" Style="{StaticResource Field}"/><Button Grid.Column="1" Style="{StaticResource PathBrowse}" Content="BROWSE" Margin="10,0,0,0" Click="BrowseInstall_Click"/></Grid>
+                            <TextBlock Text="USER DATA  /  SAVES AND SETTINGS" Style="{StaticResource Label}"/><Grid Margin="0,8,0,18"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox x:Name="UserBox" Style="{StaticResource Field}"/><Button Grid.Column="1" Style="{StaticResource PathBrowse}" Content="BROWSE" Margin="10,0,0,0" Click="BrowseUser_Click"/></Grid>
+                            <TextBlock Text="SHADER CACHE" Style="{StaticResource Label}"/><Grid Margin="0,8,0,18"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox x:Name="CacheBox" Style="{StaticResource Field}"/><Button Grid.Column="1" Style="{StaticResource PathBrowse}" Content="BROWSE" Margin="10,0,0,0" Click="BrowseCache_Click"/></Grid>
+                            <TextBlock Text="ReXGlue is included. The first build still needs Clang, CMake, Ninja, and Microsoft C++ Build Tools with the Windows SDK." Foreground="#C1C0BC" TextWrapping="Wrap" Margin="0,0,0,18"/>
+                            <ToggleButton x:Name="AdvancedSdkToggle" Style="{StaticResource Disclosure}" Content="USE A CUSTOM REXGLUE SDK" HorizontalAlignment="Left" Margin="0,0,0,10"/>
+                            <StackPanel Visibility="{Binding IsChecked, ElementName=AdvancedSdkToggle, Converter={StaticResource VisibleWhenTrue}}" Margin="0,0,0,20"><Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox x:Name="SdkBox" Style="{StaticResource Field}"/><Button Grid.Column="1" Style="{StaticResource PathBrowse}" Content="BROWSE" Margin="10,0,0,0" Click="BrowseSdk_Click"/></Grid><TextBlock Text="Leave this blank to use the SDK included with the launcher." Foreground="#C1C0BC" Margin="0,8,0,0"/></StackPanel>
                             <Button Style="{StaticResource Action}" Content="SAVE LOCATIONS   →" HorizontalAlignment="Left" Click="SaveSettings_Click"/>
                         </StackPanel></Border>
                     </StackPanel></ScrollViewer>
                     <ScrollViewer x:Name="UpdatesPanel" Visibility="Collapsed" Margin="52,38" VerticalScrollBarVisibility="Auto"><StackPanel>
-                        <TextBlock Text="04 / RELEASE CHANNEL" Style="{StaticResource Label}" Foreground="#5CD8E4"/><TextBlock Text="KEEP THE GATE OPEN" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontSize="49" Margin="0,9,0,0"/><TextBlock Text="Updates come from MKVDCU-Recomp GitHub Releases." Foreground="#B4C2CE" FontSize="15" Margin="0,4,0,28"/>
-                        <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="CHANNEL" Style="{StaticResource Label}"/><ComboBox x:Name="ChannelBox" Width="190" Height="35" HorizontalAlignment="Left" Margin="0,10,0,22" SelectionChanged="Channel_Changed"><ComboBoxItem Content="Stable" Tag="stable"/><ComboBoxItem Content="Preview" Tag="preview"/></ComboBox><TextBlock x:Name="UpdateStatus" Text="NO CHECK YET" FontFamily="Bahnschrift SemiCondensed" FontWeight="Bold" FontSize="27" Foreground="#5CD8E4"/><TextBlock x:Name="UpdateDetail" Text="You can play offline after building." Foreground="#B4C2CE" TextWrapping="Wrap" Margin="0,6,0,21"/><StackPanel Orientation="Horizontal"><Button Style="{StaticResource Action}" Content="CHECK RELEASES   ↻" Click="CheckUpdates_Click"/><Button x:Name="DownloadButton" Style="{StaticResource Secondary}" Content="DOWNLOAD UPDATE" IsEnabled="False" Margin="10,0,0,0" Click="Download_Click"/></StackPanel><ProgressBar x:Name="UpdateProgress" Height="4" Margin="0,20,0,0" Background="#293644" Foreground="#EE6C58"/></StackPanel></Border>
-                        <Border Style="{StaticResource Card}" Margin="0,18,0,0"><StackPanel><TextBlock Text="RELEASE NOTES" Style="{StaticResource Label}"/><TextBlock x:Name="ReleaseNotes" Text="Notes appear here after a successful check." TextWrapping="Wrap" Foreground="#C3D0DB" Margin="0,13,0,0"/></StackPanel></Border>
+                        <TextBlock Text="04 / UPDATES" Style="{StaticResource Label}" Foreground="#BBA47D"/><TextBlock Text="UPDATES" FontFamily="Bahnschrift SemiCondensed" FontWeight="Black" FontSize="49" Margin="0,9,0,0"/><TextBlock Text="Check MKVDCU-Recomp releases on GitHub." Foreground="#C1C0BC" FontSize="15" Margin="0,4,0,28"/>
+                        <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="CHANNEL" Style="{StaticResource Label}"/><StackPanel Orientation="Horizontal" Margin="0,10,0,22"><RadioButton x:Name="StableChannelButton" GroupName="UpdateChannel" Style="{StaticResource ChannelChoice}" Content="STABLE" Tag="stable" Checked="Channel_Changed"/><RadioButton x:Name="PreviewChannelButton" GroupName="UpdateChannel" Style="{StaticResource ChannelChoice}" Content="PREVIEW" Tag="preview" Checked="Channel_Changed" Margin="8,0,0,0"/></StackPanel><TextBlock x:Name="UpdateStatus" Text="NOT CHECKED" FontFamily="Bahnschrift SemiCondensed" FontWeight="Bold" FontSize="27" Foreground="#BBA47D"/><TextBlock x:Name="UpdateDetail" Text="Check GitHub Releases for a compatible update." Foreground="#C1C0BC" TextWrapping="Wrap" Margin="0,6,0,21"/><StackPanel Orientation="Horizontal"><Button Style="{StaticResource Action}" Content="CHECK FOR UPDATES" Click="CheckUpdates_Click"/><Button x:Name="DownloadButton" Style="{StaticResource Secondary}" Content="DOWNLOAD UPDATE" IsEnabled="False" Margin="10,0,0,0" Click="Download_Click"/></StackPanel><ProgressBar x:Name="UpdateProgress" Height="4" Margin="0,20,0,0" Background="#3B3D40" Foreground="#C05F4E"/></StackPanel></Border>
+                        <Border Style="{StaticResource Card}" Margin="0,18,0,0"><StackPanel><TextBlock Text="RELEASE NOTES" Style="{StaticResource Label}"/><TextBlock x:Name="ReleaseNotes" Text="Notes appear here after a successful check." TextWrapping="Wrap" Foreground="#D3D0CA" Margin="0,13,0,0"/></StackPanel></Border>
                     </StackPanel></ScrollViewer>
                 </Grid>
             </Grid>
-            <Grid Grid.Row="2" Background="#141C27"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="FooterStatus" Text="THE GATE IS STANDING BY" Style="{StaticResource Label}" Foreground="#A3B5C3" Margin="18,0" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Text="MKVDCU / PC  •  SWITCH LATER" Style="{StaticResource Label}" Margin="0,0,18,0" VerticalAlignment="Center"/></Grid>
+            <Grid Grid.Row="2" Background="#1B1D20"><TextBlock x:Name="FooterStatus" Text="Choose a game folder to begin." Style="{StaticResource Label}" Foreground="#BDB9B1" Margin="18,0" VerticalAlignment="Center"/></Grid>
         </Grid>
     </Border>
 </Window>

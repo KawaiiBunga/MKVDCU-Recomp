@@ -40,5 +40,7 @@ class PortMenuDialog final : public rex::ui::ImGuiDialog {
   char key_b_[64] = {};
   char key_x_[64] = {};
   char key_y_[64] = {};
+  bool dirty_ = false;
+  bool status_error_ = false;
   std::string status_;
 };

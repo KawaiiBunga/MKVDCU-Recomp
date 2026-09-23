@@ -21,7 +21,10 @@ foreach ($required in @($exe, $plugin, $xex)) {
     }
 }
 $expectedXexHash = '2955F2E2BE61EC1948CD2FD3538AD45BEB04772F5EBD5E0FB1BFDE484748E5A7'
-$actualXexHash = (Get-FileHash -LiteralPath $xex -Algorithm SHA256).Hash
+$xexStream = [IO.File]::OpenRead($xex)
+$sha256 = [Security.Cryptography.SHA256]::Create()
+try { $actualXexHash = [BitConverter]::ToString($sha256.ComputeHash($xexStream)).Replace('-', '') }
+finally { $xexStream.Dispose(); $sha256.Dispose() }
 if ($actualXexHash -ne $expectedXexHash) {
     throw "Game XEX SHA-256 $actualXexHash does not match this build's $expectedXexHash."
 }
