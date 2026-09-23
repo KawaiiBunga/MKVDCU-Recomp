@@ -122,6 +122,17 @@ continue to work through the **Existing scale** choice.
 A 55 s smoke run of **2x width + FSR 1 at a 1920x1080 window** completed at
 59.9 FPS over the last 25 s, with 72% GPU use and no hitches on the same PC.
 
+The desktop SDK patch adds **AMD FSR 1 Fast**. At up to 2x presentation
+upscaling, it lets EASU write directly to the swapchain, avoiding the RCAS
+sharpening draw and its full-resolution intermediate texture. Regular FSR 1
+remains available for its sharper output. Dithering or letterboxing keeps the
+RCAS pass so the final image is handled correctly. This only reduces
+presentation cost; it does not reduce internal render pixels. An unlocked
+105 s attract-loop A/B at a 1920x1080 window and 1x internal scale averaged
+111.1 FPS for regular FSR 1 and 116.5 FPS for Fast over the last 40 s. The
+attract scenes did not align across runs, so this is a smoke result rather
+than a controlled speedup estimate.
+
 ## Frame timing
 
 - The simulation advances once per presented frame. With the guest vblank

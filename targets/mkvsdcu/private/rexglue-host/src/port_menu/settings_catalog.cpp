@@ -60,6 +60,7 @@ std::vector<Choice> EffectChoices() {
   for (const auto& value : values) {
     const char* label = value == "cas"    ? "AMD CAS"
                         : value == "fsr"  ? "AMD FSR 1"
+                        : value == "fsr_fast" ? "AMD FSR 1 Fast"
                         : value == "fsr2" ? "AMD FSR 2 (experimental)"
                         : value == "fsr3" ? "AMD FSR 3 (experimental)"
                                           : "Bilinear";
@@ -125,8 +126,8 @@ std::vector<Group> Build() {
         {"wide_2x", "2x width (2x pixels)"}, {"tall_2x", "2x height (2x pixels)"},
         {"2x", "Full 2x (4x pixels)"}, {"3x", "Full 3x (9x pixels)"}}},
       {"present_effect", "Upscaling",
-       "How the picture is scaled to your window. Try AMD FSR 1 with a one-axis "
-       "render mode and compare its image with bilinear.", kRestart,
+       "How the picture is scaled to your window. FSR 1 Fast skips the final "
+       "sharpening pass to save GPU work; use regular FSR 1 for a sharper image.", kRestart,
        Kind::kChoice, EffectChoices()},
       {"present_cas_additional_sharpness", "Sharpness", "Extra sharpening for AMD CAS.", kRestart,
        Kind::kPercent, {}, 0, 100, nullptr,

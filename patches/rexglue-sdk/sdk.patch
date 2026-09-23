@@ -1,3 +1,109 @@
+diff --git a/include/rex/ui/presenter.h b/include/rex/ui/presenter.h
+index afb4a30..893640a 100644
+--- a/include/rex/ui/presenter.h
++++ b/include/rex/ui/presenter.h
+@@ -217,6 +217,10 @@ class Presenter {
+       // AMD FidelityFX Super Resolution upsampling, Contrast Adaptive
+       // Sharpening otherwise.
+       kFsr,
++#if defined(REX_PLATFORM_WINDOWS)
++      // Spatial EASU without the full-resolution RCAS presentation pass.
++      kFsrFast,
++#endif
+       // FidelityFX FSR2 selection. Uses the runtime temporal upscaler path
+       // where available; currently still experimental due to limited temporal
+       // inputs in the presenter path.
+@@ -463,7 +467,9 @@ class Presenter {
+     switch (effect) {
+ #if defined(REX_HAS_FIDELITYFX_SDK)
+       case GuestOutputPaintEffect::kFsrEasu:
++#if !defined(REX_PLATFORM_WINDOWS)
+         return false;
++#endif
+ #endif
+       default:
+         return true;
+diff --git a/src/ui/presenter.cpp b/src/ui/presenter.cpp
+index 7360ed9..53716eb 100644
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -42,8 +42,13 @@ REXCVAR_DEFINE_INT32(present_safe_area_y, 90, "UI/Presenter",
+ 
+ #if defined(REX_HAS_FIDELITYFX_SDK)
+ REXCVAR_DEFINE_STRING(present_effect, "bilinear", "UI/Presenter",
++#if defined(REX_PLATFORM_WINDOWS)
++                      "Guest output effect: bilinear, cas, fsr, fsr_fast, fsr2, fsr3")
++    .allowed({"bilinear", "cas", "fsr", "fsr_fast", "fsr2", "fsr3"})
++#else
+                       "Guest output effect: bilinear, cas, fsr, fsr2, fsr3")
+     .allowed({"bilinear", "cas", "fsr", "fsr2", "fsr3"})
++#endif
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
+ REXCVAR_DEFINE_DOUBLE(present_cas_additional_sharpness,
+@@ -99,6 +104,11 @@ GuestOutputPaintConfig::Effect ParsePresentEffect(const std::string& effect_name
+   if (lowered == "fsr") {
+     return GuestOutputPaintConfig::Effect::kFsr;
+   }
++#if defined(REX_PLATFORM_WINDOWS)
++  if (lowered == "fsr_fast") {
++    return GuestOutputPaintConfig::Effect::kFsrFast;
++  }
++#endif
+   if (lowered == "fsr2") {
+     return GuestOutputPaintConfig::Effect::kFsr2;
+   }
+@@ -1033,6 +1043,9 @@ Presenter::GuestOutputPaintFlow Presenter::GetGuestOutputPaintFlow(
+ #if defined(REX_HAS_FIDELITYFX_SDK)
+   if (config.GetEffect() == GuestOutputPaintConfig::Effect::kCas ||
+       config.GetEffect() == GuestOutputPaintConfig::Effect::kFsr ||
++#if defined(REX_PLATFORM_WINDOWS)
++      config.GetEffect() == GuestOutputPaintConfig::Effect::kFsrFast ||
++#endif
+       config.GetEffect() == GuestOutputPaintConfig::Effect::kFsr2 ||
+       config.GetEffect() == GuestOutputPaintConfig::Effect::kFsr3) {
+     // FidelityFX Super Resolution and Contrast Adaptive Sharpening only work
+@@ -1061,7 +1074,12 @@ Presenter::GuestOutputPaintFlow Presenter::GetGuestOutputPaintFlow(
+     bool temporal_quality_mode_forced =
+         is_temporal_effect &&
+         config.GetFsrQualityMode() != GuestOutputPaintConfig::FsrQualityMode::kAuto;
+-    if ((config.GetEffect() == GuestOutputPaintConfig::Effect::kFsr || is_temporal_effect) &&
++    bool spatial_fsr_effect = config.GetEffect() == GuestOutputPaintConfig::Effect::kFsr;
++#if defined(REX_PLATFORM_WINDOWS)
++    bool fast_spatial_fsr_effect = config.GetEffect() == GuestOutputPaintConfig::Effect::kFsrFast;
++    spatial_fsr_effect |= fast_spatial_fsr_effect;
++#endif
++    if ((spatial_fsr_effect || is_temporal_effect) &&
+         ((ffx_last_size.first < output_width_clamped ||
+           ffx_last_size.second < output_height_clamped) ||
+          temporal_quality_mode_forced)) {
+@@ -1126,9 +1144,23 @@ Presenter::GuestOutputPaintFlow Presenter::GetGuestOutputPaintFlow(
+         }
+       }
+       assert_true(flow.effect_count < flow.effects.size());
+-      flow.effect_output_sizes[flow.effect_count] = ffx_last_size;
+-      flow.effects[flow.effect_count++] = GuestOutputPaintEffect::kFsrRcas;
+-    } else {
++#if defined(REX_PLATFORM_WINDOWS)
++      // EASU's shader has no output-origin constant. Keep the RCAS final
++      // pass for letterboxed output, where SV_Position has an offset.
++      if (!fast_spatial_fsr_effect || config.GetDither() || flow.output_x || flow.output_y ||
++          output_width != host_rt_width || output_height != host_rt_height) {
++#endif
++        flow.effect_output_sizes[flow.effect_count] = ffx_last_size;
++        flow.effects[flow.effect_count++] = GuestOutputPaintEffect::kFsrRcas;
++#if defined(REX_PLATFORM_WINDOWS)
++      }
++#endif
++    }
++#if defined(REX_PLATFORM_WINDOWS)
++    else if (!fast_spatial_fsr_effect) {
++#else
++    else {
++#endif
+       // AMD FidelityFX Contrast Adaptive Sharpening - sharpen or downsample, or
+       // upsample up to 2x2 if CAS is specified to be used for upscaling too.
+       // Using the unclamped output size as CAS may be the last pass - if a
 diff --git a/thirdparty/CMakeLists.txt b/thirdparty/CMakeLists.txt
 index f102b56..ebead40 100644
 --- a/thirdparty/CMakeLists.txt
