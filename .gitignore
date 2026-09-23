@@ -6,6 +6,7 @@
 !/targets/mkvsdcu/private/rexglue-host/CMakeLists.txt
 !/targets/mkvsdcu/private/rexglue-host/CMakePresets.json
 !/targets/mkvsdcu/private/rexglue-host/mkvsdcu_manifest.toml
+/targets/mkvsdcu/private/rexglue-host/mkvsdcu_manifest.local.toml
 !/targets/mkvsdcu/private/rexglue-host/src/
 !/targets/mkvsdcu/private/rexglue-host/config/
 /targets/mkvsdcu/private/rexglue-host/config/*
@@ -27,3 +28,5 @@
 *.nacp
 *.elf
 __pycache__/
+/launcher/**/bin/
+/launcher/**/obj/

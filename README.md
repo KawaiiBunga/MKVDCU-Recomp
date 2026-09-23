@@ -27,4 +27,6 @@ For setup from your own extracted game directory, see [Getting started](docs/GET
 | `switch/toolchain-test/` | Small libnx/NRO toolchain test; it is not the game. |
 | `docs/switch/` and `research/` | Switch port research and earlier target-selection work. |
 
-The next feature phase is an in-game port menu for frame rate, resolution, visual enhancements, and controls. PC behavior and configuration will be made reliable first; Switch-specific options will be added when a working Switch runtime exists.
+The next feature phase is a PC launcher and in-game port menu for display, graphics, performance, and controls. The build path will first accept a user-selected game folder; Switch-specific options will be added when a working Switch runtime exists.
+
+The [launcher and port menu plan](docs/LAUNCHER_AND_PORT_MENU_PLAN.md) covers game-folder validation, local building, F1 overlay, settings, and GitHub Releases updates.

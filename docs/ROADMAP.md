@@ -1,8 +1,10 @@
 # Roadmap
 
-## Next: in-game port menu
+The [launcher and port menu plan](LAUNCHER_AND_PORT_MENU_PLAN.md) defines the end-to-end first-run, build, overlay, and GitHub Releases update flow. The milestones below remain the gameplay and settings work within that plan.
 
-Build one menu owned by MKVDCU-Recomp for settings that make sense during play. The menu should be reachable by controller and keyboard, explain when a setting applies, and persist choices in the user data directory. The game should start with known-good defaults when no config exists or a saved value is invalid.
+## In-game port menu
+
+First make the PC build accept a user-selected game folder and install location, as specified in the launcher plan. Then build one menu owned by MKVDCU-Recomp for settings that make sense during play. The menu should be reachable by controller and keyboard, explain when a setting applies, and persist choices in the user data directory. The game should start with known-good defaults when no config exists or a saved value is invalid.
 
 The first PC pass should cover:
 

@@ -5,6 +5,9 @@
 cmake_minimum_required(VERSION 3.25)
 project(mkvsdcu LANGUAGES CXX)
 
+set(MKVSDCU_CODEGEN_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/mkvsdcu_manifest.toml"
+    CACHE FILEPATH "Manifest for the validated local game folder")
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -13,6 +16,8 @@ include(generated/rexglue.cmake)
 # Sources
 set(MKVSDCU_SOURCES
     src/main.cpp
+    src/mkvsdcu_app.cpp
+    src/port_menu/port_menu.cpp
 )
 
 if(WIN32)

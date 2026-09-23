@@ -1,0 +1,279 @@
+using System.Diagnostics;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using Microsoft.Win32;
+
+namespace MKVDCU.Launcher;
+
+public partial class MainWindow : Window
+{
+    private readonly LauncherSettings _settings;
+    private readonly BuildService _builder = new();
+    private readonly UpdateService _updater = new();
+    private CancellationTokenSource? _buildCancellation;
+    private ReleaseInfo? _release;
+    private bool _ready;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        _settings = SettingsStore.Load();
+        GameFolderBox.Text = _settings.GameFolder;
+        InstallBox.Text = _settings.InstallRoot;
+        UserBox.Text = _settings.UserRoot;
+        CacheBox.Text = _settings.CacheRoot;
+        SdkBox.Text = _settings.SdkRoot;
+        ChannelBox.SelectedIndex = _settings.UpdateChannel == "preview" ? 1 : 0;
+        _ready = true;
+        ShowPanel("play");
+        RefreshBuildState();
+        Loaded += async (_, _) =>
+        {
+            if (!string.IsNullOrWhiteSpace(_settings.GameFolder)) await VerifyAsync();
+            await CheckForUpdatesAsync(silent: true);
+        };
+    }
+
+    private static readonly Brush Good = new SolidColorBrush(Color.FromRgb(92, 216, 228));
+    private static readonly Brush Bad = new SolidColorBrush(Color.FromRgb(238, 108, 88));
+
+    private void ShowPanel(string panel)
+    {
+        PlayPanel.Visibility = panel == "play" ? Visibility.Visible : Visibility.Collapsed;
+        LibraryPanel.Visibility = panel == "library" ? Visibility.Visible : Visibility.Collapsed;
+        BuildPanel.Visibility = panel == "build" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsPanel.Visibility = panel == "settings" ? Visibility.Visible : Visibility.Collapsed;
+        UpdatesPanel.Visibility = panel == "updates" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void Nav_Click(object sender, RoutedEventArgs e) => ShowPanel((string)((Button)sender).Tag);
+    private void TitleBar_Drag(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        else DragMove();
+    }
+    private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void Close_Click(object sender, RoutedEventArgs e) { _buildCancellation?.Cancel(); Close(); }
+
+    private void BrowseGame_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog { Title = "Choose extracted MK vs. DC Universe game folder" };
+        if (dialog.ShowDialog(this) == true)
+        {
+            GameFolderBox.Text = dialog.FolderName;
+            _ = VerifyAsync();
+        }
+    }
+
+    private async void Verify_Click(object sender, RoutedEventArgs e) => await VerifyAsync();
+
+    private async Task<bool> VerifyAsync()
+    {
+        _settings.GameFolder = GameFolderBox.Text.Trim();
+        HeroGamePath.Text = string.IsNullOrWhiteSpace(_settings.GameFolder) ? "—" : _settings.GameFolder;
+        ValidationHeading.Text = HeroStatus.Text = "SCANNING FILES";
+        ValidationDetail.Text = HeroDetail.Text = "Reading game executable and required content folders…";
+        FooterStatus.Text = "CHECKING GAME FOLDER";
+        try
+        {
+            var result = await GameValidator.ValidateAsync(_settings.GameFolder);
+            ValidationHeading.Text = HeroStatus.Text = result.Heading;
+            ValidationDetail.Text = HeroDetail.Text = result.Detail;
+            ValidationHeading.Foreground = HeroStatus.Foreground = result.Valid ? Good : Bad;
+            FooterStatus.Text = result.Valid ? "GAME FILES VERIFIED" : "GAME VALIDATION NEEDS ATTENTION";
+            SettingsStore.Save(_settings);
+            RefreshBuildState();
+            return result.Valid;
+        }
+        catch (Exception ex)
+        {
+            ValidationHeading.Text = HeroStatus.Text = "VALIDATION FAILED";
+            ValidationDetail.Text = HeroDetail.Text = ex.Message;
+            ValidationHeading.Foreground = HeroStatus.Foreground = Bad;
+            FooterStatus.Text = "VALIDATION ERROR";
+            return false;
+        }
+    }
+
+    private void RefreshBuildState()
+    {
+        var installed = File.Exists(Paths.GameExe(_settings.InstallRoot)) &&
+                        _settings.BuiltXexHash.Equals(Paths.ExpectedXexHash, StringComparison.OrdinalIgnoreCase) &&
+                        _settings.BuiltVersion == _settings.InstalledVersion;
+        HeroBuildState.Text = installed ? "READY TO PLAY" : "BUILD REQUIRED";
+        HeroBuildState.Foreground = installed ? Good : Bad;
+        PlayButton.IsEnabled = installed;
+    }
+
+    private void SaveSettings_Click(object sender, RoutedEventArgs e) => SaveLocations();
+    private bool SaveLocations()
+    {
+        try
+        {
+            _settings.InstallRoot = Path.GetFullPath(InstallBox.Text.Trim());
+            _settings.UserRoot = Path.GetFullPath(UserBox.Text.Trim());
+            _settings.CacheRoot = Path.GetFullPath(CacheBox.Text.Trim());
+            _settings.SdkRoot = Path.GetFullPath(SdkBox.Text.Trim());
+            if (!string.IsNullOrWhiteSpace(GameFolderBox.Text))
+            {
+                _settings.GameFolder = Path.GetFullPath(GameFolderBox.Text.Trim());
+                BuildService.ValidateDestinations(_settings);
+            }
+            SettingsStore.Save(_settings);
+            RefreshBuildState();
+            FooterStatus.Text = "LOCATIONS SAVED";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Location error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+    }
+
+    private async void Build_Click(object sender, RoutedEventArgs e)
+    {
+        if (_buildCancellation != null || !SaveLocations()) return;
+        if (!await VerifyAsync()) { ShowPanel("library"); return; }
+        ShowPanel("build");
+        BuildLog.Clear();
+        BuildStatus.Text = "BUILDING";
+        BuildProgress.IsIndeterminate = true;
+        BuildButton.IsEnabled = false;
+        CancelBuildButton.IsEnabled = true;
+        FooterStatus.Text = "NATIVE BUILD IN PROGRESS";
+        _buildCancellation = new CancellationTokenSource();
+        var progress = new Progress<string>(line =>
+        {
+            BuildLog.AppendText(line + Environment.NewLine);
+            if (BuildLog.Text.Length > 160_000) BuildLog.Text = BuildLog.Text[^120_000..];
+            BuildLog.ScrollToEnd();
+        });
+        try
+        {
+            await _builder.BuildAsync(_settings, line => ((IProgress<string>)progress).Report(line), _buildCancellation.Token);
+            BuildStatus.Text = "BUILD COMPLETE";
+            FooterStatus.Text = "READY TO PLAY";
+            RefreshBuildState();
+        }
+        catch (OperationCanceledException)
+        {
+            BuildStatus.Text = "BUILD CANCELLED";
+            FooterStatus.Text = "BUILD CANCELLED";
+        }
+        catch (Exception ex)
+        {
+            BuildStatus.Text = "BUILD FAILED";
+            FooterStatus.Text = "BUILD FAILED — SEE TELEMETRY";
+            BuildLog.AppendText(Environment.NewLine + "ERROR: " + ex.Message);
+        }
+        finally
+        {
+            BuildProgress.IsIndeterminate = false;
+            BuildButton.IsEnabled = true;
+            CancelBuildButton.IsEnabled = false;
+            _buildCancellation.Dispose();
+            _buildCancellation = null;
+        }
+    }
+
+    private void CancelBuild_Click(object sender, RoutedEventArgs e) => _buildCancellation?.Cancel();
+
+    private async void Play_Click(object sender, RoutedEventArgs e)
+    {
+        if (!await VerifyAsync()) { ShowPanel("library"); return; }
+        try
+        {
+            var process = BuildService.Launch(_settings);
+            FooterStatus.Text = $"GAME RUNNING  /  PID {process.Id}";
+            HeroBuildState.Text = "GAME RUNNING";
+            _ = MonitorGameAsync(process);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Launch failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            ShowPanel("build");
+        }
+    }
+
+    private async Task MonitorGameAsync(Process process)
+    {
+        try
+        {
+            await process.WaitForExitAsync();
+            FooterStatus.Text = process.ExitCode == 0 ? "GAME CLOSED CLEANLY" : $"GAME EXITED  /  CODE {process.ExitCode} — CHECK LOGS";
+        }
+        catch (Exception ex) { FooterStatus.Text = "GAME MONITOR ERROR: " + ex.Message; }
+        finally { process.Dispose(); RefreshBuildState(); }
+    }
+
+    private void Channel_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_ready || ChannelBox.SelectedItem is not ComboBoxItem item) return;
+        _settings.UpdateChannel = (string)item.Tag;
+        SettingsStore.Save(_settings);
+        _release = null;
+        DownloadButton.IsEnabled = false;
+        UpdateStatus.Text = "CHANNEL CHANGED";
+        UpdateDetail.Text = "Check releases to see the newest compatible build.";
+    }
+
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(silent: false);
+
+    private async Task CheckForUpdatesAsync(bool silent)
+    {
+        if (!silent) ShowPanel("updates");
+        UpdateStatus.Text = "CHECKING RELEASES";
+        UpdateDetail.Text = "Contacting the GitHub Releases feed…";
+        try
+        {
+            _release = await _updater.CheckAsync(_settings.UpdateChannel, CancellationToken.None);
+            if (_release == null)
+            {
+                UpdateStatus.Text = "NO RELEASE AVAILABLE";
+                UpdateDetail.Text = "The feed is empty, unavailable, or has no Windows package. Local play still works.";
+                DownloadButton.IsEnabled = false;
+                return;
+            }
+            var installed = _release.Tag == _settings.InstalledVersion;
+            UpdateStatus.Text = installed ? "CURRENT RELEASE" : "NEW RELEASE  /  " + _release.Tag;
+            UpdateDetail.Text = installed ? "This version is already installed." :
+                $"Windows package · {_release.Size / 1024.0 / 1024.0:0.0} MiB · {_settings.UpdateChannel} channel";
+            ReleaseNotes.Text = _release.Body;
+            DownloadButton.IsEnabled = !installed;
+        }
+        catch (Exception ex)
+        {
+            UpdateStatus.Text = "OFFLINE / FEED ERROR";
+            UpdateDetail.Text = ex.Message;
+            DownloadButton.IsEnabled = false;
+        }
+    }
+
+    private async void Download_Click(object sender, RoutedEventArgs e)
+    {
+        if (_release == null) return;
+        DownloadButton.IsEnabled = false;
+        UpdateStatus.Text = "DOWNLOADING UPDATE";
+        var progress = new Progress<double>(fraction => UpdateProgress.Value = Math.Clamp(fraction * 100, 0, 100));
+        try
+        {
+            var file = await _updater.DownloadAsync(_release, _settings.InstallRoot, progress, CancellationToken.None);
+            UpdateStatus.Text = "INSTALLING UPDATE";
+            UpdateDetail.Text = "Verified package. The launcher will restart after installation.";
+            UpdateService.StartInstall(file, _settings.InstallRoot, _release.Tag);
+            FooterStatus.Text = "SWITCHING TO NEW RELEASE";
+            Close();
+        }
+        catch (Exception ex)
+        {
+            UpdateStatus.Text = "UPDATE DOWNLOAD FAILED";
+            UpdateDetail.Text = ex.Message;
+            DownloadButton.IsEnabled = true;
+        }
+    }
+}
