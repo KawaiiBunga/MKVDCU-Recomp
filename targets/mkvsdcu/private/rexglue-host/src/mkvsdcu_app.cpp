@@ -57,6 +57,20 @@ void MkvsdcuApp::OnPreSetup(rex::RuntimeConfig& config) {
   if (!config.graphics && !plugin.empty()) {
     config.graphics = rex::system::LoadGpuPlugin(plugin, host_tweaks::GpuBackend());
   }
+  // The host framebuffer path omits fighting surfaces in this title. Use
+  // exact EDRAM depth/stencil emulation for Automatic Vulkan render targets.
+  if (rex::cvar::GetFlagInfo("render_target_path_vulkan") &&
+      rex::cvar::GetFlagByName("render_target_path_vulkan").empty()) {
+    rex::cvar::SetFlagByName("render_target_path_vulkan", "fsi");
+  }
+  if (rex::cvar::GetFlagInfo("vulkan_dynamic_rendering") &&
+      rex::cvar::GetFlagSource("vulkan_dynamic_rendering") == rex::cvar::Source::kDefault) {
+    rex::cvar::SetFlagByName("vulkan_dynamic_rendering", "false");
+  }
+  if (rex::cvar::GetFlagInfo("gpu_frame_rate_limit") &&
+      rex::cvar::GetFlagSource("gpu_frame_rate_limit") == rex::cvar::Source::kDefault) {
+    rex::cvar::SetFlagByName("gpu_frame_rate_limit", "60");
+  }
   // The plugin registers its scale cvars when loaded. Set both axes before
   // the graphics system allocates render targets and translates shaders.
   host_tweaks::ApplyRenderMode();

@@ -18,6 +18,8 @@
 /targets/*/generated/
 /targets/*/reports/
 /work/
+/targets/mkvsdcu-nx/build-switch/
+/mesa-sdk/
 
 # Keep the pinned SDK submodule; other reference checkouts stay local.
 /references/*
@@ -29,6 +31,7 @@
 *.nro
 *.nacp
 *.elf
+*.log
 __pycache__/
 /launcher/**/bin/
 /launcher/**/obj/

@@ -259,7 +259,7 @@ std::vector<Group> Build() {
       {"render_target_path_d3d12", "Render targets", "Rasterizer-ordered views are exact but slow.",
        kRestart, Kind::kChoice,
        {{"", "Automatic"}, {"rtv", "Host (fast)"}, {"rov", "ROV (accurate)"}}, 0, 0, "d3d12"},
-      {"render_target_path_vulkan", "Render targets", "Interlock is exact but slow.", kRestart,
+      {"render_target_path_vulkan", "Render targets", "Automatic uses interlock. Host can omit floors; interlock is slower.", kRestart,
        Kind::kChoice, {{"", "Automatic"}, {"fbo", "Host (fast)"}, {"fsi", "Interlock (accurate)"}},
        0, 0, "vulkan"},
       {"d3d12_bindless", "Bindless resources", "Turn off only to work around a driver bug.",

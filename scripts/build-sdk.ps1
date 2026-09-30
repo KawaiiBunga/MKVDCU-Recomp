@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [ValidateRange(1, 64)][int]$Parallel = 4
+    [ValidateRange(1, 64)][int]$Parallel = 4,
+    [string]$BuildDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,6 +9,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $sdk = Join-Path $root 'references\rexglue-sdk'
 $patch = Join-Path $root 'patches\rexglue-sdk\sdk.patch'
 $install = Join-Path $sdk 'out\install\win-amd64'
+if (-not $BuildDir) { $BuildDir = Join-Path $sdk 'out\build\win-amd64-vulkan-fixed' }
+$BuildDir = [IO.Path]::GetFullPath($BuildDir)
 $git = if (Test-Path -LiteralPath 'C:\Program Files\Git\cmd\git.exe' -PathType Leaf) {
     'C:\Program Files\Git\cmd\git.exe'
 } else { (Get-Command git -ErrorAction Stop).Source }
@@ -58,19 +61,41 @@ if ($LASTEXITCODE -ne 0 -or $newFiles.Count -gt 0) {
     throw "Unrecorded files in the SDK checkout: $($newFiles -join ', '). Add them to sdk.patch before building a release."
 }
 
+$ninjaCandidates = @(
+    (Join-Path $env:LOCALAPPDATA 'MKVDCU-Recomp/tools/llvm22.1.8-cmake4.4.3-ninja1.13.2/ninja/ninja.exe'),
+    'C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe',
+    (Get-Command ninja.exe -ErrorAction SilentlyContinue).Source)
+$ninja = $ninjaCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) -and $_ -notmatch '[\\/](msys64|msys2)[\\/]' } | Select-Object -First 1
+if (-not $ninja) { throw 'Install a native Windows Ninja; MSYS Ninja cannot run the Windows SDK commands.' }
+$env:Path = (Split-Path -Parent $ninja) + ';' + $env:Path
+
 foreach ($tool in @('clang.exe', 'clang++.exe', 'ninja.exe', 'llvm-rc.exe')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "Missing $tool. See docs/PC_BUILD.md." }
 }
 
-Push-Location $sdk
-try {
-    & $cmake --preset win-amd64 '-DREXGLUE_USE_VULKAN=ON' '-DREXGLUE_USE_D3D12=ON' '-DREXGLUE_ENABLE_FIDELITYFX=ON' '-DREXGLUE_ENABLE_TRACY=ON' '-DREXGLUE_ENABLE_PERF_COUNTERS=ON'
-    if ($LASTEXITCODE -ne 0) { throw "SDK configure failed with exit code $LASTEXITCODE" }
-} finally { Pop-Location }
+# Use a fresh single-config Release cache: moved SDK caches may contain
+# MSYS compiler/SDL settings even when the renderer was requested as Vulkan.
+$configureArgs = @('-S', $sdk, '-B', $BuildDir, '-G', 'Ninja',
+    "-DCMAKE_C_COMPILER=$((Get-Command clang.exe).Source)",
+    "-DCMAKE_CXX_COMPILER=$((Get-Command clang++.exe).Source)",
+    "-DCMAKE_RC_COMPILER=$((Get-Command llvm-rc.exe).Source)",
+    "-DCMAKE_MAKE_PROGRAM=$ninja",
+    '-DCMAKE_C_FLAGS=-march=x86-64-v2', '-DCMAKE_CXX_FLAGS=-march=x86-64-v2',
+    '-DCMAKE_BUILD_TYPE=Release', "-DCMAKE_INSTALL_PREFIX=$install",
+    '-DREXGLUE_USE_VULKAN=ON', '-DREXGLUE_USE_D3D12=ON',
+    '-DREXGLUE_ENABLE_FIDELITYFX=ON', '-DREXGLUE_ENABLE_TRACY=ON',
+    '-DREXGLUE_ENABLE_PERF_COUNTERS=ON')
+$existingFidelityFx = Join-Path $sdk 'out\build\win-amd64\_deps\fidelityfx-src'
+if (Test-Path -LiteralPath (Join-Path $existingFidelityFx 'CMakeLists.txt')) {
+    $configureArgs += "-DFETCHCONTENT_SOURCE_DIR_FIDELITYFX=$existingFidelityFx"
+}
+& $cmake @configureArgs
+if ($LASTEXITCODE -ne 0) { throw "SDK configure failed with exit code $LASTEXITCODE" }
 
 # FidelityFX ships this resource in UTF-16LE. llvm-rc requires UTF-8, so
 # normalize the fetched dependency after CMake populates it and before build.
-$resource = Join-Path $sdk 'out\build\win-amd64\_deps\fidelityfx-src\ffx-api\src\resource\ffx_api_dll.rc'
+$fidelitySource = if (Test-Path -LiteralPath (Join-Path $existingFidelityFx 'CMakeLists.txt')) { $existingFidelityFx } else { Join-Path $BuildDir '_deps\fidelityfx-src' }
+$resource = Join-Path $fidelitySource 'ffx-api\src\resource\ffx_api_dll.rc'
 if (-not (Test-Path -LiteralPath $resource -PathType Leaf)) { throw "Missing FidelityFX resource: $resource" }
 $bytes = [IO.File]::ReadAllBytes($resource)
 if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xff -and $bytes[1] -eq 0xfe) {
@@ -81,7 +106,7 @@ if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xff -and $bytes[1] -eq 0xfe) {
     throw "Unexpected FidelityFX resource encoding: $resource"
 }
 
-& $cmake --build (Join-Path $sdk 'out\build\win-amd64') --config Release --target install --parallel $Parallel
+& $cmake --build $BuildDir --target install --parallel $Parallel
 if ($LASTEXITCODE -ne 0) { throw "SDK build/install failed with exit code $LASTEXITCODE" }
 $exe = Join-Path $install 'bin\rexglue.exe'
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "SDK install did not create $exe" }

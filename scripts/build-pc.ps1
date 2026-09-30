@@ -35,6 +35,14 @@ $cmake = if (Test-Path -LiteralPath 'C:\Program Files\CMake\bin\cmake.exe') {
 } else {
     (Get-Command cmake -ErrorAction Stop).Source
 }
+$ninjaCandidates = @(
+    (Join-Path $env:LOCALAPPDATA 'MKVDCU-Recomp/tools/llvm22.1.8-cmake4.4.3-ninja1.13.2/ninja/ninja.exe'),
+    'C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe',
+    (Get-Command ninja.exe -ErrorAction SilentlyContinue).Source)
+$ninja = $ninjaCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) -and $_ -notmatch '[\\/](msys64|msys2)[\\/]' } | Select-Object -First 1
+if (-not $ninja) { throw 'Install a native Windows Ninja; MSYS Ninja cannot run the Windows SDK commands.' }
+$env:Path = (Split-Path -Parent $ninja) + ';' + $env:Path
+
 foreach ($tool in @('clang.exe', 'clang++.exe', 'ninja.exe')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         throw "Missing $tool. Install LLVM/Clang and Ninja, then relaunch. The launcher already includes ReXGlue."
@@ -130,7 +138,7 @@ if ($glueText -ne (Get-Content -LiteralPath $cmakeGlue -Raw)) {
 try {
     Push-Location $projectRoot
     try {
-        & $cmake --preset win-amd64-release "-DCMAKE_PREFIX_PATH=$sdkInstall" "-DMKVSDCU_CODEGEN_MANIFEST=$manifest" '-DMKVSDCU_CODEGEN_MANAGED_EXTERNALLY=ON'
+        & $cmake --preset win-amd64-release "-DCMAKE_MAKE_PROGRAM=$ninja" "-DCMAKE_C_COMPILER=$((Get-Command clang.exe).Source)" "-DCMAKE_CXX_COMPILER=$((Get-Command clang++.exe).Source)" "-DCMAKE_PREFIX_PATH=$sdkInstall" "-DMKVSDCU_CODEGEN_MANIFEST=$manifest" '-DMKVSDCU_CODEGEN_MANAGED_EXTERNALLY=ON'
         if ($LASTEXITCODE -ne 0) { throw "CMake configure failed with exit code $LASTEXITCODE" }
     } finally {
         Pop-Location

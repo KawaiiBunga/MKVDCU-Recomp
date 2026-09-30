@@ -1,0 +1,6 @@
+# MKvDCU Vulkan rendering and normal-speed defaults.
+# Keep cvar names at the top level; [graphics] would prefix them with graphics_.
+render_target_path_vulkan = "fsi"
+vulkan_dynamic_rendering = false
+gpu_frame_rate_limit = 60
+vsync = true
