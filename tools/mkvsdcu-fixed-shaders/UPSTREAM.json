@@ -1,0 +1,53 @@
+{
+  "repository": "https://github.com/StevensND/nfsmw-nx",
+  "commit": "266f943263993148e49e968208a4f784ddd8d88d",
+  "translator_license": "MIT",
+  "files": [
+    {
+      "path": "constant_table.h",
+      "upstream_path": "shaders/XenosRecomp/constant_table.h",
+      "upstream_sha256": "675397e4faaec7deb68001e934decca9a1bc08f30ecf58c38bfab8c4688ffbb3"
+    },
+    {
+      "path": "LICENSE.md",
+      "upstream_path": "shaders/LICENSE.md",
+      "upstream_sha256": "bcb33ae2cbc6c0f2818712d806112e774e684fce01ce80573f92adf80b7487f4"
+    },
+    {
+      "path": "pch_min.h",
+      "upstream_path": "shaders/XenosRecomp/pch_min.h",
+      "upstream_sha256": "2fdf784ecef527bc2c78cca37fa0ecb4c92b05d0964705bc5647844148a9980d"
+    },
+    {
+      "path": "shader.h",
+      "upstream_path": "shaders/XenosRecomp/shader.h",
+      "upstream_sha256": "4e2807363c5e4439d8dd278ee4c865324f80739a03bdccabc5f17c039f426a28"
+    },
+    {
+      "path": "shader_code.h",
+      "upstream_path": "shaders/XenosRecomp/shader_code.h",
+      "upstream_sha256": "f7e748314222a92f7ffb60263a19f797184ce0e02fcbecd32bb121e9295d8b58"
+    },
+    {
+      "path": "shader_common.h",
+      "upstream_path": "shaders/XenosRecomp/shader_common.h",
+      "upstream_sha256": "31dbd051c71d8360f2d33b1b74a10d8490e1f7b19ce7b766d39f9bd848bd0816"
+    },
+    {
+      "path": "shader_recompiler.cpp",
+      "upstream_path": "shaders/XenosRecomp/shader_recompiler.cpp",
+      "upstream_sha256": "6ca1a8aec81e7ecd36298913ecd1657308b3d9e79b5ac89051038d4f6115290b"
+    },
+    {
+      "path": "shader_recompiler.h",
+      "upstream_path": "shaders/XenosRecomp/shader_recompiler.h",
+      "upstream_sha256": "1b79f72034bc7727d08fae17a11c3e0d1f1dac9ff7d7a95c3a27e126da48968c"
+    }
+  ],
+  "memory_helpers": {
+    "repository": "https://github.com/ChanseyIsTheBest/sa2-nx",
+    "commit": "adf3a4eee524dcca5cd7c1b42454ddb8a09124a1",
+    "path": "app/thirdparty/reblue-XenosRecomp",
+    "license": "MIT"
+  }
+}

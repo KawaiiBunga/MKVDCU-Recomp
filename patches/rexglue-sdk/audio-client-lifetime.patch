@@ -1,0 +1,105 @@
+--- a/src/audio/audio_system.cpp
++++ b/src/audio/audio_system.cpp
+@@ -253,22 +253,27 @@
+   auto global_lock = global_critical_region_.Acquire();
+ 
+   auto index = FindFreeClient();
+-  assert_true(index >= 0);
++  if (index < 0) {
++    return X_STATUS_UNSUCCESSFUL;
++  }
+   REXAPU_DEBUG("AudioSystem::RegisterClient: using client index={} queued_frames={}", index,
+                queued_frames_);
+ 
+   auto client_semaphore = client_semaphores_[index].get();
+-  auto ret = client_semaphore->Release(queued_frames_, nullptr);
+-  assert_true(ret);
+-
+-  AudioDriver* driver;
++  AudioDriver* driver = nullptr;
+   auto result = CreateDriver(index, client_semaphore, &driver);
+   if (XFAILED(result)) {
+     return result;
+   }
+-  assert_not_null(driver);
++  if (!driver) {
++    return X_STATUS_UNSUCCESSFUL;
++  }
+ 
+   uint32_t ptr = memory()->SystemHeapAlloc(0x4);
++  if (!ptr) {
++    DestroyDriver(driver);
++    return X_STATUS_UNSUCCESSFUL;
++  }
+   memory::store_and_swap<uint32_t>(memory()->TranslateVirtual(ptr), callback_arg);
+ 
+   clients_[index] = {driver, callback, callback_arg, ptr, true};
+@@ -277,6 +282,10 @@
+     *out_index = index;
+   }
+ 
++  // Publish the complete client before waking its callback worker.
++  auto ret = client_semaphore->Release(queued_frames_, nullptr);
++  assert_true(ret);
++  REXAPU_INFO("Audio client {} registered: callback={:08X}", index, callback);
+   return X_STATUS_SUCCESS;
+ }
+ 
+@@ -291,8 +300,17 @@
+   }
+ 
+   auto global_lock = global_critical_region_.Acquire();
+-  assert_true(index < kMaximumClientCount);
+-  assert_true(clients_[index].driver != NULL);
++  // The worker executes guest callbacks without this lock. A callback may
++  // finish after the guest has unregistered its client (including from the
++  // callback itself). Release builds must not dereference the retired driver.
++  if (index >= kMaximumClientCount || !clients_[index].in_use || !clients_[index].driver) {
++    static uint32_t retired_submissions = 0;
++    if (retired_submissions++ < 8) {
++      REXAPU_WARN("Ignoring audio frame for inactive client {} (samples={:08X})", index,
++                  samples_ptr);
++    }
++    return;
++  }
+   (clients_[index].driver)->SubmitFrame(samples_ptr);
+ }
+ 
+@@ -300,7 +318,10 @@
+   SCOPE_profile_cpu_f("apu");
+ 
+   auto global_lock = global_critical_region_.Acquire();
+-  assert_true(index < kMaximumClientCount);
++  if (index >= kMaximumClientCount || !clients_[index].in_use || !clients_[index].driver) {
++    return;
++  }
++  REXAPU_INFO("Audio client {} unregistered", index);
+   DestroyDriver(clients_[index].driver);
+   memory()->SystemHeapFree(clients_[index].wrapped_callback_arg);
+   clients_[index] = {nullptr, 0, 0, 0, false};
+--- a/src/kernel/xboxkrnl/xboxkrnl_audio.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_audio.cpp
+@@ -233,7 +233,9 @@
+ }
+ 
+ u32 XAudioUnregisterRenderDriverClient_entry(mapped_void driver_ptr) {
+-  assert_true((driver_ptr.guest_address() & 0xFFFF0000) == 0x41550000);
++  if ((driver_ptr.guest_address() & 0xFFFF0000) != 0x41550000) {
++    return X_E_INVALIDARG;
++  }
+ 
+   auto* audio_system =
+       static_cast<audio::AudioSystem*>(REX_KERNEL_STATE()->emulator()->audio_system());
+@@ -242,7 +244,11 @@
+ }
+ 
+ u32 XAudioSubmitRenderDriverFrame_entry(mapped_void driver_ptr, mapped_void samples_ptr) {
+-  assert_true((driver_ptr.guest_address() & 0xFFFF0000) == 0x41550000);
++  // A guest callback can clear its own handle while rendering a frame. Zero
++  // is not client zero: reject it before masking off the handle's signature.
++  if ((driver_ptr.guest_address() & 0xFFFF0000) != 0x41550000) {
++    return X_E_INVALIDARG;
++  }
+ 
+   static uint32_t submit_krnl_count = 0;
+   if (submit_krnl_count < 10) {

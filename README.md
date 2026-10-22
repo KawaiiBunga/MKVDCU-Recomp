@@ -33,3 +33,14 @@ Build and run from a checkout with the steps in [PC build](docs/PC_BUILD.md). Re
 
 ## Like what I do?
 I love what I do and want to keep sharing it with the world. You can directly support me and my projects here: https://ko-fi.com/kawaiibunga
+
+
+## Native deko3d target
+
+The Windows-native build is `scripts/build-switch-deko3d.ps1`. It uses portable
+tools under `E:/tools`, an isolated SDK, and a separate `dist/deko3d/` package.
+See [the native build and installation guide](targets/mkvsdcu-nx/DEKO3D.md)
+and [the pinned research plan](patches/rexglue-sdk/DEKO3D_PLAN.md).
+The native shader library/cache are generated from the user's own game. Console
+visual and performance validation is required; offline compilation is not a
+Switch gameplay benchmark.

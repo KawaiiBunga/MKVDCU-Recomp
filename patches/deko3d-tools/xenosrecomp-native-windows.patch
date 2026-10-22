@@ -1,0 +1,154 @@
+--- a/XenosRecomp/pch.h
++++ b/XenosRecomp/pch.h
+@@ -4,6 +4,10 @@
+ #include <Windows.h>
+ #endif
+ 
++#if defined(__MINGW32__) && defined(__clang__)
++// Use Clang UUID attributes on DXC COM interfaces (MinGW has no CRT UUID declarations).
++#undef __uuidof
++#endif
+ #include <dxcapi.h>
+ 
+ #ifdef RENUT_RECOMP
+--- a/XenosRecomp/dxc_compiler.cpp
++++ b/XenosRecomp/dxc_compiler.cpp
+@@ -2,7 +2,7 @@
+ 
+ DxcCompiler::DxcCompiler()
+ {
+-    HRESULT hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxcCompiler));
++    HRESULT hr = DxcCreateInstance(CLSID_DxcCompiler, __uuidof(IDxcCompiler3), reinterpret_cast<void**>(&dxcCompiler));
+     assert(SUCCEEDED(hr));
+ }
+ 
+@@ -25,18 +25,20 @@
+     if (compileLibrary)
+     {
+         assert(!compileSpirv);
+-        target = L"-T lib_6_3";
++        target = L"lib_6_3";
+     }
+     else
+     {
+         if (compilePixelShader)
+-            target = L"-T ps_6_0";
++            target = L"ps_6_0";
+         else
+-            target = L"-T vs_6_0";
++            target = L"vs_6_0";
+     }
+ 
++    args[argCount++] = L"-T";
+     args[argCount++] = target;
+-    args[argCount++] = L"-HV 2021";
++    args[argCount++] = L"-HV";
++    args[argCount++] = L"2021";
+     args[argCount++] = L"-all-resources-bound";
+ 
+     if (compileSpirv)
+@@ -69,7 +71,7 @@
+ #endif
+ 
+     IDxcResult* result = nullptr;
+-    HRESULT hr = dxcCompiler->Compile(&source, args, argCount, nullptr, IID_PPV_ARGS(&result));
++    HRESULT hr = dxcCompiler->Compile(&source, args, argCount, nullptr, __uuidof(IDxcResult), reinterpret_cast<void**>(&result));
+ 
+     IDxcBlob* object = nullptr;
+     if (SUCCEEDED(hr))
+@@ -85,7 +87,7 @@
+             if (result->HasOutput(DXC_OUT_ERRORS))
+             {
+                 IDxcBlobUtf8* errors = nullptr;
+-                hr = result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), nullptr);
++                hr = result->GetOutput(DXC_OUT_ERRORS, __uuidof(IDxcBlobUtf8), reinterpret_cast<void**>(&errors), nullptr);
+                 assert(SUCCEEDED(hr) && errors != nullptr);
+ 
+                 fputs(errors->GetStringPointer(), stderr);
+@@ -95,7 +97,7 @@
+         }
+         else
+         {
+-            hr = result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&object), nullptr);
++            hr = result->GetOutput(DXC_OUT_OBJECT, __uuidof(IDxcBlob), reinterpret_cast<void**>(&object), nullptr);
+             assert(SUCCEEDED(hr) && object != nullptr);
+         }
+ 
+@@ -103,6 +105,7 @@
+     }
+     else
+     {
++        fprintf(stderr, "DXC Compile HRESULT 0x%08lX\n", static_cast<unsigned long>(hr)); fflush(stderr);
+         assert(result == nullptr);
+     }
+ 
+--- a/XenosRecomp/main.cpp
++++ b/XenosRecomp/main.cpp
+@@ -187,6 +187,7 @@
+                     g_failures.push_back({hash, reason});
+                 };
+ 
++                printf("TRANSLATE %016llX %s\n", static_cast<unsigned long long>(hash), shader.sourceName.c_str()); fflush(stdout);
+                 thread_local ShaderRecompiler recompiler;
+                 recompiler = {};
+                 recompiler.recompile(shader.data, include);
+@@ -293,7 +294,8 @@
+                 }
+ #endif
+ 
+-                IDxcBlob* spirv = dxcCompiler.compile(recompiler.out, recompiler.isPixelShader, false, true);
++                const bool dekoOnly = std::getenv("MKVSDCU_DEKO3D_ONLY") != nullptr;
++                IDxcBlob* spirv = dxcCompiler.compile(recompiler.out, recompiler.isPixelShader, false, true, dekoOnly);
+ #ifdef RENUT_RECOMP
+                 if (spirv == nullptr && !originalHlsl.empty())
+                 {
+@@ -320,13 +322,22 @@
+                     return;
+                 }
+ 
++                if (dekoOnly) {
++                    const char* dekoDir = std::getenv("BANJO_DEKO3D_SPIRV_DIR");
++                    if (dekoDir && *dekoDir) {
++                        std::filesystem::create_directories(dekoDir);
++                        const std::string stem = fmt::format("{}_{:016X}", recompiler.isPixelShader ? "ps" : "vs", hash);
++                        const std::string path = (std::filesystem::path(dekoDir) / (stem + ".spv")).string();
++                        writeAllBytes(path.c_str(), spirv->GetBufferPointer(), spirv->GetBufferSize());
++                    }
++                }
+                 spirv->Release();
+ 
+ #ifdef RENUT_RECOMP
+                 // banjo-nx (deko3d renderer, docs/deko3d-renderer.md): with BANJO_DEKO3D_SPIRV_DIR, also the SPIR-V the
+                 // deko3d build converts (tools/deko3d_shaders.py): -DBANJO_DEKO3D, D3D clip space. <dir>/<vs|ps>_<hash>.spv,
+                 // and <hash>.fail with DXC's reason when it does not compile. Game data: the build tree only.
+-                if (const char* dekoDir = std::getenv("BANJO_DEKO3D_SPIRV_DIR"); dekoDir && *dekoDir)
++                if (const char* dekoDir = std::getenv("BANJO_DEKO3D_SPIRV_DIR"); !dekoOnly && dekoDir && *dekoDir)
+                 {
+                     const std::string stem = fmt::format("{}_{:016X}", recompiler.isPixelShader ? "ps" : "vs", hash);
+                     std::error_code ec;
+@@ -369,6 +380,11 @@
+         fmt::println("banjo-nx: {} pixel shaders kill pixels, {} write depth (banjo_gpu_depth_only keeps them)",
+                      banjoKillShaders.load(), banjoDepthShaders.load());
+ #endif
++        if (std::getenv("MKVSDCU_SHADER_AUDIT")) {
++            fmt::println("MKvDCU shader audit complete; runtime cache generation was not requested.");
++            return 0;
++        }
++
+         fmt::println("Creating shader cache...");
+ 
+         StringBuffer f;
+--- a/XenosRecomp/shader_recompiler.cpp
++++ b/XenosRecomp/shader_recompiler.cpp
+@@ -157,6 +157,11 @@
+     { DeclUsage::TexCoord, 15 },
+     { DeclUsage::Color, 0 },
+     { DeclUsage::Color, 1 },
++#ifdef MKVSDCU_RECOMP
++    // MKvDCU UE3 shader-container census: COLOR2 is used by 493 interfaces.
++    // Keep this slot in both stage signatures; never substitute COLOR0 or zero.
++    { DeclUsage::Color, 2 },
++#endif
+ #ifdef RENUT_RECOMP
+     // N&B also passes vectors through NORMAL/TANGENT/BINORMAL interpolators.
+     { DeclUsage::Normal, 0 },

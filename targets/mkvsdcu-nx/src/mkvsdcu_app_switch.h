@@ -32,6 +32,7 @@ class MkvsdcuAppSwitch : public rex::ReXApp {
   void OnPostInitLogging() override;
   void OnPreSetup(rex::RuntimeConfig& config) override;
   void OnPostSetup() override;
+  std::unique_ptr<rex::ui::SettingsDialog> CreateSettingsOverlay() override;
   void OnShutdown() override;
 
  private:
@@ -48,6 +49,9 @@ class MkvsdcuAppSwitch : public rex::ReXApp {
 
   std::atomic<bool> watchdog_active_{false};
   std::thread watchdog_thread_;
+
+  // Init-only menu changes are retained across closing/reopening the menu.
+  std::map<std::string, std::string> port_menu_pending_settings_;
 
   // Frame telemetry
   rex::ui::FrameStats frame_stats_{};

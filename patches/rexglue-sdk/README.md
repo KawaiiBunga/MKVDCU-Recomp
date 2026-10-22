@@ -24,3 +24,8 @@ Temporary frame capture and depth comparison experiments are excluded from both 
 Validation: the complete PC SDK patch passed source consistency/reverse-apply checks and built/installed successfully through `scripts/build-sdk.ps1`. The PC game built successfully through `scripts/build-pc.ps1`. On the rebuilt PC Vulkan version, a 30 FPS diagnostic cap measured 30 FPS (33.3 ms) and normal 60 measured 60 FPS (16.7 ms) in steady startup-video samples. Raw guest VdSwap telemetry is in `research/vulkan-final-verify/cap30.csv` and `cap60.csv`; loading transitions can reduce the frame rate. The earlier visible hangar-floor comparison is copied there as `fsi-floor.png`.
 
 Final Switch NRO: 89,106,629 bytes; SHA-256 `E79A1C1E4A88607DE552DFC113BB4DD9F310EF5BA68F1D5112E0DBC66E23273A`. Packaging completed successfully and NRO/asset headers validated. `dist/mkvsdcu.toml` contains the settings above as flat cvar names; `[graphics]` would incorrectly prefix them with `graphics_`. Copy it beside the NRO after preserving any existing config settings you want to retain. The original FTP config was read for diagnosis; deployment and on-device verification remain for the next run.
+
+
+## Switch port menu (2026-10-03)
+
+`switch-port-menu.patch` adds a protected settings-dialog factory and accessor to the ignored Switch SDK. It retains the SDK's existing F4/controller binding and input gate while allowing the title's curated menu. `scripts/build-switch.ps1` checks/applies it reproducibly; no PC SDK modification is needed. See `patches/rexglue-sdk/SWITCH_PERFORMANCE.md` for applicable NFSMW optimizations and measurement limits. The direct-call staging tool's GPL-3.0 license is retained under `patches/nfsmw-nx/LICENSE.GPL-3.0`.

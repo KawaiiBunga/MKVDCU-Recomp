@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.25)
+project(mkvsdcu_d3d_trace_smoke LANGUAGES CXX)
+set(REXSDK "${CMAKE_CURRENT_SOURCE_DIR}/../../references/rexglue-sdk" CACHE PATH "Existing PC SDK source")
+add_executable(mkvsdcu-d3d-trace-smoke main.cpp
+    ../../targets/mkvsdcu/private/rexglue-host/src/telemetry/d3d_trace.cpp)
+target_compile_features(mkvsdcu-d3d-trace-smoke PRIVATE cxx_std_23)
+target_include_directories(mkvsdcu-d3d-trace-smoke PRIVATE "${REXSDK}/include" "${REXSDK}/thirdparty/simde")
+target_compile_options(mkvsdcu-d3d-trace-smoke PRIVATE -Wall -Wextra -Werror)
+target_link_options(mkvsdcu-d3d-trace-smoke PRIVATE -static)
+target_link_libraries(mkvsdcu-d3d-trace-smoke PRIVATE bcrypt)

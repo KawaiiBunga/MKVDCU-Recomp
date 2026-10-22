@@ -26,6 +26,15 @@ if ($LASTEXITCODE -eq 0) {
     & git -C $root apply "--directory=$prefix" --reverse --check $patch 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Switch SDK conflicts with vulkan-common.patch; preserve vendor changes and resolve the affected hunks.' }
 }
+$menuPatch = Join-Path $root 'patches/rexglue-sdk/switch-port-menu.patch'
+& git -C $root apply "--directory=$prefix" --ignore-space-change --check $menuPatch 2>$null
+if ($LASTEXITCODE -eq 0) {
+    & git -C $root apply "--directory=$prefix" --ignore-space-change $menuPatch
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to apply Switch port-menu SDK extension.' }
+} else {
+    & git -C $root apply "--directory=$prefix" --reverse --ignore-space-change --check $menuPatch 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'Switch SDK conflicts with switch-port-menu.patch.' }
+}
 $cachedNinja = $null
 $cacheFile = Join-Path $build 'CMakeCache.txt'
 if (Test-Path -LiteralPath $cacheFile) {
@@ -47,8 +56,13 @@ if ($LASTEXITCODE -ne 0) { throw 'Switch CMake configure failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Switch build failed.' }
 $nro = Join-Path $build 'mkvsdcu.nro'
 if (-not (Test-Path -LiteralPath $nro -PathType Leaf)) { throw 'Switch build did not produce mkvsdcu.nro.' }
+$nm = 'C:/devkitPro/devkitA64/bin/aarch64-none-elf-nm.exe'
+$verify = Join-Path $root 'scripts/verify-switch-build.py'
+& python $verify --build $build --nm $nm
+if ($LASTEXITCODE -ne 0) { throw 'Switch ELF/NRO validation failed; package was not copied.' }
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 Copy-Item -LiteralPath $nro -Destination (Join-Path $dist 'mkvsdcu.nro') -Force
+Copy-Item -LiteralPath (Join-Path $build 'switch-build-verification.json') -Destination (Join-Path $dist 'switch-build-verification.json') -Force
 Copy-Item -LiteralPath (Join-Path $source 'mkvsdcu.toml') -Destination (Join-Path $dist 'mkvsdcu.toml') -Force
 Write-Host "[OK] Built $nro and dist/mkvsdcu.nro with its Vulkan configuration"

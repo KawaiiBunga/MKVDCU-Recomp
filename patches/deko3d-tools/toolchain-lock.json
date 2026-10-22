@@ -1,0 +1,33 @@
+{
+  "sources": {
+    "sa2": "adf3a4eee524dcca5cd7c1b42454ddb8a09124a1",
+    "nfsmw_deko": "266f943263993148e49e968208a4f784ddd8d88d",
+    "nfsmw_main": "be2d4c67ab42d6d629746a01dbf03cef824c8d2d",
+    "SPIRV-Cross": "vulkan-sdk-1.4.363.0",
+    "llvm-mingw": "20261006",
+    "DXC": "v1.9.2609",
+    "CMake": "4.4.4",
+    "Ninja": "1.13.2",
+    "portable_MSVC": "14.44.35207",
+    "portable_Windows_SDK": "10.0.26100.9169 (headers/libs 10.0.26100.0)",
+    "native_shader_ABI": 4,
+    "NFSMW_SDK_archive_sha256": "b8aadb65426adece0294192eb2bd4d62b2ef6b08fc20c96465925e126fcc6ecb"
+  },
+  "portable_tools_root": "E:/tools",
+  "package_archive_sha256": {
+    "deko3d-0.5.0-1-any.pkg.tar.zst": "d4281a573246c2e658c0a2619b78099d4016ad72d6210a1e13473a546e7f9ac3",
+    "devkita64-binutils-2.46.0-1-windows_x86_64.pkg.tar.zst": "c516a70a31521b61e18759669c6f5c6718796a6cbb0b3c1c023a2ac418f79988",
+    "devkita64-gcc-16.1.0-1-windows_x86_64.pkg.tar.zst": "4ccf7ee6f3d85248f3b58708e44aa3e9f777479ff90cd4409a95862752e85400",
+    "devkita64-newlib-4.6.0.20260123-4-any.pkg.tar.zst": "fc97ba1009a94b68f8714c3cc548ef697ca82687b72fe0c05a7ca3df81beb53e",
+    "devkita64-rules-1.1.1-1-any.pkg.tar.zst": "2649cf7827243447070073acc2aa2fee152a0592fc30e827ceed803c565a1ede",
+    "libnx-4.12.0-1-any.pkg.tar.zst": "c6950bdf8e4b872ece492225368c03e633776329548a7494f91aa1e8f239cd8a",
+    "switch-tools-1.13.1-1-windows_x86_64.pkg.tar.zst": "c9c5fc60e3dd2f82d7c6592611bd37cc610d150ef4fa75fe09ce329df998084d"
+  },
+  "archive_provenance": "Unmodified devkitPro packages from the Leseratte archive; hashes pinned after download; signatures not verified.",
+  "native_lto_make": {
+    "version": "GNU Make 4.4.1",
+    "path": "E:/tools/llvm-mingw/llvm-mingw-20261006-ucrt-x86_64/bin/mingw32-make.exe",
+    "sha256": "28fe9a569d5ef92cf974e35032f109a471469bef6b05405bd5b1b4752f71fb0a",
+    "source": "Existing llvm-mingw 20261006 bundle; no new installation"
+  }
+}

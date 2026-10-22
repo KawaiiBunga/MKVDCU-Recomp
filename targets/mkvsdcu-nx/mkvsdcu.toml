@@ -4,3 +4,15 @@ render_target_path_vulkan = "fsi"
 vulkan_dynamic_rendering = false
 gpu_frame_rate_limit = 60
 vsync = true
+
+# Leave a core available for game/audio work during shader warmup.
+vulkan_pipeline_creation_threads = 2
+native_2x_msaa = false
+# Avoid frequent kernel wakeups and diagnostic clock reads during normal play.
+mkvsdcu_espera_anillo_bloqueante = true
+mkvsdcu_espera_anillo_us = 200
+mkvsdcu_ring_wait_diagnostics = false
+mkvsdcu_watchdog_diagnostics = false
+
+# Optional official handheld GPU request; leave external clock profiles alone.
+mkvsdcu_switch_gpu_mhz = 0

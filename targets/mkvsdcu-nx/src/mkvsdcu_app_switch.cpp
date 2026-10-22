@@ -1,4 +1,6 @@
 #include "mkvsdcu_app_switch.h"
+#include "mkvsdcu_port_menu.h"
+#include <rex/ui/switch_apm.h>
 #include "generated/default/mkvsdcu_init.h"
 
 #include <rex/cvar.h>
@@ -8,10 +10,21 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
 #include <rex/system/xthread.h>
+#if MKVSDCU_DEKO3D
+#include "nfsmw_nativo_sistema.h"
+#endif
 
 #include <algorithm>
 #include <cinttypes>
 #include <cstring>
+
+REXCVAR_DEFINE_BOOL(mkvsdcu_watchdog_diagnostics, false, "MKvDCU",
+                    "Write routine detailed thread snapshots; stalls are always reported");
+
+REXCVAR_DEFINE_INT32(mkvsdcu_switch_gpu_mhz, 0, "MKvDCU",
+                     "Official handheld GPU request: 0 preserves clock profile, 384 or 460 MHz")
+    .range(0, 460)
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 std::atomic<uint64_t> g_mkvsdcu_frames_rendered{0};
 
@@ -93,10 +106,18 @@ void MkvsdcuAppSwitch::OnPostInitLogging() {
   REXLOG_INFO("[mkvsdcu] Horizon nvMap transfer memory size set to {} MB", __nx_nv_transfermem_size >> 20);
 #endif
 
-  // Always enforce Xenos GPU emulation plugin on Switch
+#if MKVSDCU_DEKO3D
+  rex::cvar::SetFlagByName("gpu_plugin", "");
+  rex::cvar::SetFlagByName("nfsmw_renderizador", "nativo");
+#else
+  // Xenos GPU plugin for the legacy Vulkan build.
   SetCVarDefault("gpu_plugin", "xenos");
+#endif
   SetCVarDefault("mnk_mode", "false");
   SetCVarDefault("gpu_frame_rate_limit", "60");
+  // Three application cores are available. Leave room for the game/audio
+  // instead of using three concurrent compiler workers during first-use loads.
+  SetCVarDefault("vulkan_pipeline_creation_threads", "2");
 
   // Title-specific Vulkan rendering configuration for Nintendo Switch / NVK:
   // Must be set here before LoadGpuPlugin() in OnPreSetup():
@@ -119,15 +140,25 @@ void MkvsdcuAppSwitch::OnPostInitLogging() {
 }
 
 void MkvsdcuAppSwitch::OnPreSetup(rex::RuntimeConfig& config) {
+#if MKVSDCU_DEKO3D
+  config.gpu_plugin.clear();
+  config.graphics = nfsmw::nativo::CrearSistemaGrafico();
+#else
   const std::string plugin = rex::cvar::GetFlagByName("gpu_plugin");
   if (!config.graphics && !plugin.empty()) {
     config.graphics = rex::system::LoadGpuPlugin(plugin, "vulkan");
   }
+#endif
 }
 
 void MkvsdcuAppSwitch::OnPostSetup() {
   // Guest frame stats telemetry for overlay
   SetGuestFrameStats([this] { return SampleFrameStats(); });
+
+  RexSwitchApmPedirGpuMhz(REXCVAR_GET(mkvsdcu_switch_gpu_mhz));
+  RexSwitchApmPermitirRam1600(0);
+  RexSwitchApmAplicar();
+  REXLOG_INFO("[mkvsdcu] Port menu: hold L + R and press D-pad Right.");
 
   // Start autonomous hang watchdog
   StartHangWatchdog();
@@ -135,7 +166,21 @@ void MkvsdcuAppSwitch::OnPostSetup() {
   REXLOG_INFO("[mkvsdcu] Switch runtime initialized with active diagnostics and telemetry.");
 }
 
+std::unique_ptr<rex::ui::SettingsDialog> MkvsdcuAppSwitch::CreateSettingsOverlay() {
+  auto resume = [this] {
+    app_context().CallInUIThreadDeferred([this] { settings_overlay().reset(); });
+  };
+  auto advanced = [this] {
+    app_context().CallInUIThreadDeferred([this] {
+      settings_overlay() = std::make_unique<rex::ui::SettingsDialog>(imgui_drawer(), (rex::filesystem::GetExecutableFolder() / "mkvsdcu.toml"));
+    });
+  };
+  return std::make_unique<MkvsdcuPortMenu>(
+      imgui_drawer(), (rex::filesystem::GetExecutableFolder() / "mkvsdcu.toml"), [this] { return SampleFrameStats(); }, resume, advanced, port_menu_pending_settings_);
+}
+
 void MkvsdcuAppSwitch::OnShutdown() {
+  settings_overlay().reset();
   StopHangWatchdog();
 }
 
@@ -270,8 +315,9 @@ void MkvsdcuAppSwitch::HangWatchdogMain() {
       stall_seconds = 0;
     }
 
-    seconds_since_snapshot++;
-    if (seconds_since_snapshot >= kRoutineSnapshotInterval) {
+    seconds_since_snapshot = std::min(seconds_since_snapshot + 1, kRoutineSnapshotInterval);
+    if (REXCVAR_GET(mkvsdcu_watchdog_diagnostics) &&
+        seconds_since_snapshot >= kRoutineSnapshotInterval) {
       seconds_since_snapshot = 0;
       DumpThreads(threads, false);
     }

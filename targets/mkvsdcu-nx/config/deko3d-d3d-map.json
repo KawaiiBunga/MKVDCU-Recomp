@@ -1,0 +1,249 @@
+{
+  "xex_sha256": "2955f2e2be61ec1948cd2fd3538ad45beb04772f5ebd5e0fb1bfde484748e5a7",
+  "xdk": "2.0.7645",
+  "hooks_installed": false,
+  "functions": [
+    {
+      "name": "CBlocker::Check",
+      "address": "0x827E1410",
+      "bytes": 216,
+      "body_sha256": "c132dba21d4a36944f332d083620cce4d0ca2fe842e176d76bfd6e83699ff52a",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Reads device fence pointer +0x2A90 and state byte +0x2ABD; existing title hook."
+    },
+    {
+      "name": "Direct3D_CreateDevice",
+      "address": "0x827E1D68",
+      "bytes": 216,
+      "body_sha256": "8cf3c734dc518fc0e54df254642426c522a30d9012024995650ac9f8107396d2",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Allocates 0x5E00 bytes at alignment 0x80; r4 selects device type; type 2 sets flag +0x2ABC; hardware path stores behavior at +0x5DAC."
+    },
+    {
+      "name": "D3DDevice_SetIndices",
+      "address": "0x827E6840",
+      "bytes": 144,
+      "body_sha256": "ba02728fa4a6cd2f56310015be20bf26b7cf35a9a4776937d07101c43748951e",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Stores the bound index buffer at device +0x3094."
+    },
+    {
+      "name": "D3DDevice_SetDepthStencilSurface",
+      "address": "0x827E72E8",
+      "bytes": 728,
+      "body_sha256": "eff378c26abc7b8a3822d06d078377b1ad961ab6b83585f62d6b59b34f8537f4",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Stores bound depth surface at device +0x30A8; maintains destination state."
+    },
+    {
+      "name": "XGRegisterPixelShader",
+      "address": "0x827EB600",
+      "bytes": 56,
+      "body_sha256": "712a52f481eccacaf42323d1958fe943d84f9ec5a70f312ca55b03f37a52d35b",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Initializes resource type 7 and physical data pointer +0x18 in the shader header."
+    },
+    {
+      "name": "D3DDevice_SetPixelShader",
+      "address": "0x827EB638",
+      "bytes": 448,
+      "body_sha256": "7d030aede50225cf0a5704efef0898d61bad8c231c6b2a6a340ff37c77422519",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Stores bound pixel shader at device +0x3194 and applies literal constants."
+    },
+    {
+      "name": "XGRegisterVertexShader",
+      "address": "0x827EB7F8",
+      "bytes": 248,
+      "body_sha256": "4672f113e8750b285a362b824ae275d2d08470f37c643181657ceb060729a5cd",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Initializes resource type 6, physical pointer +0x20, container at +0x368; copies 12-byte fetch instructions."
+    },
+    {
+      "name": "D3DDevice_SetVertexShader",
+      "address": "0x827EB8F0",
+      "bytes": 464,
+      "body_sha256": "aec9ac87ee33e13d4576fbb85f1006371bc7eee7cda0d84bc69e02cf9e8ebaa0",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Stores bound vertex shader at device +0x3198 and applies literal constants."
+    },
+    {
+      "name": "D3DDevice_SetVertexDeclaration",
+      "address": "0x827EBAC0",
+      "bytes": 24,
+      "body_sha256": "832354d8eac51dc6a1815783b3e5560b81ffc95be09e2482b70b57a25895cdab",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Stores r4 at device +0x2E2C and marks the relevant dirty group."
+    },
+    {
+      "name": "D3DDevice_ClearF",
+      "address": "0x827F1758",
+      "bytes": 296,
+      "body_sha256": "3e48da371e415256aaca7d64b63af69506c07e2fe09a541d3ac6b926d057bb15",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=flags, r5=rect, r6=float_color, f1=depth, r8=stencil",
+      "evidence": "Derives full rect from bound color +0x3098 or depth +0x30A8 when rect is null; invokes clear core 0x827F10A8."
+    },
+    {
+      "name": "D3DDevice_Clear",
+      "address": "0x827F1880",
+      "bytes": 192,
+      "body_sha256": "9dc6812769e72dab3c462ca1dda7327f974a3fc6745db63506a52999699cab2a",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=rect_count, r5=rects, r6=flags, r7=packed_color, f1=depth, r9=stencil",
+      "evidence": "Converts packed color into float components with VMX128, loops rectangle list and calls ClearF."
+    },
+    {
+      "name": "D3DDevice_BeginVertices",
+      "address": "0x827F1940",
+      "bytes": 1176,
+      "body_sha256": "6add6da74a39c30affd64ad94eadb0885bea5db8cb93226efc6ace8d04a2010a",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=primitive, r5=count, r6=stride; returns vertex pointer",
+      "evidence": "Allocates inline vertex data; saves end ring +0x3484, data +0x3488 and word count +0x3490."
+    },
+    {
+      "name": "D3DDevice_EndVertices",
+      "address": "0x827F1DD8",
+      "bytes": 16,
+      "body_sha256": "0ac480d9dae43bfc7c92db98753f3db9c85a4e4594a7d6ffdb39dfd1b9805966",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device",
+      "evidence": "Copies saved end ring +0x3484 to current ring +0x30."
+    },
+    {
+      "name": "D3DDevice_DrawVerticesUP",
+      "address": "0x827F1DE8",
+      "bytes": 72,
+      "body_sha256": "2eae5f96f9e041bfcda445839099d6b5f1c8f46a25ba2b0e858ddcfc1f7611fa",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=primitive, r5=count, r6=data, r7=stride",
+      "evidence": "Calls BeginVertices, copies count*stride bytes, then restores end ring +0x3484 to +0x30."
+    },
+    {
+      "name": "D3DDevice_BeginIndexedVertices",
+      "address": "0x827F1E30",
+      "bytes": 1312,
+      "body_sha256": "62ff9cf684def2bc81fbec7c96e4eadf3171a5af19ca21d422cfbc123dd8e1e7",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=primitive, r5=base_vertex, r6=vertex_count, r7=index_count, r8=index_format, r9=stride, r10=indices_out; vertices_out at caller stack +0x54",
+      "evidence": "Allocates inline vertex/index data; stores pointers +0x3488/+0x348C and word counts +0x3490/+0x3494. Indexed UP wrapper supplies negative minimum index as base vertex, then copies the two returned buffers."
+    },
+    {
+      "name": "D3DDevice_DrawIndexedVerticesUP",
+      "address": "0x827F2350",
+      "bytes": 160,
+      "body_sha256": "967daf5b60d592d4f410e647d1c1a6b9eb56ff7d7e81105f54bbee8a8e746ece",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=primitive, r5=min_vertex, r6=vertex_count, r7=index_count, r8=index_data, r9=index_format, r10=vertex_data; stride at caller stack +0x54",
+      "evidence": "Calls BeginIndexedVertices; copies vertex and index arrays; commits saved end ring."
+    },
+    {
+      "name": "D3DDevice_DrawVertices",
+      "address": "0x827F23F0",
+      "bytes": 1008,
+      "body_sha256": "b2dbec14fb242d51c47af5119047be735e1ea199564c6e43a940452aaf9bfd97",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=primitive, r5=start_vertex, r6=vertex_count",
+      "evidence": "Flushes both constant banks and shaders; emits 0xC0012201 draw packet and primitive/count fields."
+    },
+    {
+      "name": "D3DDevice_DrawIndexedVertices",
+      "address": "0x827F27E0",
+      "bytes": 1104,
+      "body_sha256": "6d8f9752acf777484325f0c630a978c0e2b3d6d392ab8123b10e2188e9cf7cc1",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=primitive, r5=base_vertex, r6=start_index, r7=index_count",
+      "evidence": "Flushes constants and shaders; emits 0xC0032201 indexed draw packet using bound indices at +0x3094."
+    },
+    {
+      "name": "D3DDevice_DrawIndexedTessellatedVertices",
+      "address": "0x827F30B0",
+      "bytes": 1504,
+      "body_sha256": "493ad06b208647a3b14cb2c4b50e101e896073ff3d22fc0f45c4feec122d7a10",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=primitive, r5=base_vertex, r6=start_index, r7=index_count",
+      "evidence": "Updates tessellation fields +0x2974/+0x2978; flushes constants and shaders; emits indexed draw packet."
+    },
+    {
+      "name": "D3DDevice_Resolve",
+      "address": "0x827F4538",
+      "bytes": 3672,
+      "body_sha256": "ce9305fbaf02c89faf463e1974300bd93ebe3ae8236eb7988acd263dab284126",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=flags, r5=rect, r6=texture, r7=point, r8=level, r9=slice, r10=clear_color, f1=clear_depth; stencil stack ABI pending",
+      "evidence": "Selects bound color +0x3098 or depth +0x30A8 from flags; handles destination texture, resolve and optional clear work."
+    },
+    {
+      "name": "D3D::RingBufferDeviceAllocate",
+      "address": "0x827F5838",
+      "bytes": 560,
+      "body_sha256": "669244c6108903bbcd979ae94a7b35b2b3d89b9221cadb56db65ae58b14f9ac9",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=flags, r5=size_inout, r6=alignment",
+      "evidence": "Reads byte size through r5, aligns allocation using r6, updates circular side-ring fields +0x3A44/+0x3A4C and handles ring exhaustion."
+    },
+    {
+      "name": "D3D::AllocateInlineData",
+      "address": "0x827F5A68",
+      "bytes": 232,
+      "body_sha256": "4feb80232a7b68334b7a2fc9d86dfa700a9f5aa318e859cabde1b8dd8e156b9e",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=dwords, r5=alignment",
+      "evidence": "Converts dwords to bytes and calls RingBufferDeviceAllocate with flag 1; updates inline byte accounting +0x3A54 and failure flag +0x2ABD bit 0x20."
+    },
+    {
+      "name": "CDevice::SetFence",
+      "address": "0x827F5EF8",
+      "bytes": 240,
+      "body_sha256": "d426baaad3317671797a3aafa54784557a585321ab7404f988e8c3ac7626564d",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=packet_cursor; returns advanced packet cursor",
+      "evidence": "Emits EVENT_WRITE_SHD packets, records ring state, conditionally updates completion words immediately when +0x541C is zero and +0x2ABD mask 0x02 is set, increments +0x2A9C by two."
+    },
+    {
+      "name": "CDevice::BlockOnFence",
+      "address": "0x827F60C0",
+      "bytes": 208,
+      "body_sha256": "3f9330cc6287ee49a28084478ea07f84e3c0f52518fdab46a6c30fd89f854902",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device, r4=fence, r5=blocker_type, r6=unconfirmed, r7=no_kick_guard; complete ABI requires runtime trace",
+      "evidence": "Compares unsigned distances from +0x2A9C to requested and completed fences through +0x2A90. Conditionally calls KickOff, then polls CBlocker::Check until completion."
+    },
+    {
+      "name": "CDevice::KickOffSegment",
+      "address": "0x827F66F0",
+      "bytes": 392,
+      "body_sha256": "8f53b4244485dddae7c71e9ed4964775735476b6ce4ac1849e160bb74ff28e63",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device",
+      "evidence": "Ends the current segment; calls SetFence and appends indirect buffer records or submits the hardware ring; updates segment bookkeeping."
+    },
+    {
+      "name": "CDevice::KickOff",
+      "address": "0x827F6878",
+      "bytes": 256,
+      "body_sha256": "bedad9b9ddf1ba300309626a6a7ff887068d8b3a35f2684ecf081da8ce6a85b9",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=device; returns current ring cursor",
+      "evidence": "Prepares segment data, calls KickOffSegment and optionally waits on the prior fence through BlockOnFence before returning device +0x30."
+    },
+    {
+      "name": "D3DDevice_IsFencePending",
+      "address": "0x827F69B0",
+      "bytes": 144,
+      "body_sha256": "214134455d93b1885e7021a771f3c98bd637a9e2cf435ee5033e742aa9c4c341",
+      "status": "static identification; runtime trace pending",
+      "signature": "r3=fence; device comes from VdGlobalDevice import selected by process type",
+      "evidence": "Loads global device via 0x82000818/0x8200081C; kicks when fence equals current +0x2A9C; compares requested/completed unsigned distances using completion pointer +0x2A90."
+    },
+    {
+      "name": "D3DDevice_Swap",
+      "address": "0x827F7860",
+      "bytes": 1552,
+      "body_sha256": "086373985f5a6d74b285814bc2b8ba57762e9643aa36398b7dcaf822da36e3ca",
+      "status": "static identification; runtime trace pending",
+      "evidence": "Increments swap count at device +0x40B0 and calls VdSwap at 0x827F7AC8; r3=device, r4=front texture, r5=parameters."
+    }
+  ]
+}

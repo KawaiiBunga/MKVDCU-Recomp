@@ -1,0 +1,147 @@
+{
+  "repository": "https://github.com/StevensND/nfsmw-nx",
+  "commit": "266f943263993148e49e968208a4f784ddd8d88d",
+  "license": "GPL-3.0",
+  "files": [
+    {
+      "path": "nfsmw_ajustes_graficos.h",
+      "upstream_sha256": "e556c50b71b0093bf01604f6cbf00701be9516b46b95382ab4b477e303ad71c7"
+    },
+    {
+      "path": "nfsmw_dk_cache_dksh.cpp",
+      "upstream_sha256": "da8af54dd7cf4063c248ac1453dc0b18495908c3fa3b2d974d6f52a17185155d"
+    },
+    {
+      "path": "nfsmw_dk_cache_dksh.h",
+      "upstream_sha256": "a75696c56deef558af1e1f5e993e89443d24b25c11b7d8fb96d1a9e835effefd"
+    },
+    {
+      "path": "nfsmw_dk_compilador.cpp",
+      "upstream_sha256": "f503c34cf2e11db97c33e7f208ede11243e017bf12dfc078d74cf43f2059e64a"
+    },
+    {
+      "path": "nfsmw_dk_compilador.h",
+      "upstream_sha256": "40d6f5c3c528646c46c54925d207da2b586939f4d609a2dc899e2854de59b864"
+    },
+    {
+      "path": "nfsmw_dk_destinos.cpp",
+      "upstream_sha256": "e27199dab0078af12e84a1c8253bc83e013503b3b26b13599049ec2dc745a339"
+    },
+    {
+      "path": "nfsmw_dk_destinos.h",
+      "upstream_sha256": "7835fdec17f5068b8a8eaa45c011f68a6a8425e6dee39864424a1a8a619475df"
+    },
+    {
+      "path": "nfsmw_dk_dibujos.cpp",
+      "upstream_sha256": "646c13c988b14c83bb1e2616f76e81b07d884dd5e60e31a55f8b5b920d497141"
+    },
+    {
+      "path": "nfsmw_dk_geometria.cpp",
+      "upstream_sha256": "f6b2cc399cab868b2b833ce028e0d05aabd1d7a585d011fe1e7bfa6e8ed4d137"
+    },
+    {
+      "path": "nfsmw_dk_geometria.h",
+      "upstream_sha256": "e86bca6827d6c852b87e8f75ebc8cafbc6cfc5e3046656188bf5ec741b5d2cbd"
+    },
+    {
+      "path": "nfsmw_dk_glsl.cpp",
+      "upstream_sha256": "d4593f6b7b10a14c468e499fb1c23628c071efee93c2a100015e3594a40aeb35"
+    },
+    {
+      "path": "nfsmw_dk_glsl.h",
+      "upstream_sha256": "d8b6c13375af7c23530e78a5f2e6217a7e306455877655269224238268355239"
+    },
+    {
+      "path": "nfsmw_dk_libc.cpp",
+      "upstream_sha256": "0f5f3bdd939200a7a01cceeea3b832dfac4f500eedc64a4af81bc1107335a3c2"
+    },
+    {
+      "path": "nfsmw_dk_nucleo.cpp",
+      "upstream_sha256": "d45825ebd9cdef3940f215fe46354d138e7fea64f1e64b7f9d3d97b7cac8cbc8"
+    },
+    {
+      "path": "nfsmw_dk_nucleo.h",
+      "upstream_sha256": "f49d52cea885b59ab5b239e8eeb53f20c546f70653f9913c4347fad6641db0ed"
+    },
+    {
+      "path": "nfsmw_dk_presentador.cpp",
+      "upstream_sha256": "91daaf91ccba73568642f8d14ab304033de7cc72e13284ab326beb1097057bc4"
+    },
+    {
+      "path": "nfsmw_dk_presentador.h",
+      "upstream_sha256": "28bf02b7c6eedf54c0323082d55c3c5fc228582c0cd203a6a6d63f049cd4e1e1"
+    },
+    {
+      "path": "nfsmw_dk_render.h",
+      "upstream_sha256": "0f6a936ac53fcdf0d1b13fc6add87c070546670b1ff24e07ece940b5149a42c5"
+    },
+    {
+      "path": "nfsmw_dk_texturas.cpp",
+      "upstream_sha256": "6f8e79d164fa79ace4757f323a57cf168a3478f6300701b6b2a4cf6aa9aa451d"
+    },
+    {
+      "path": "nfsmw_esperas_tiron.h",
+      "upstream_sha256": "677da1c5449399643705b4ba59232260d979ab1fba86df54d9c7460ce9b45f9a"
+    },
+    {
+      "path": "nfsmw_informe_diferido.h",
+      "upstream_sha256": "d509666677f0b82284231bdff4f1d60072fe479c36beac049ef187da7095ab12"
+    },
+    {
+      "path": "nfsmw_microcodigo_versiones.h",
+      "upstream_sha256": "1c2fe03909a2ba728b46d1ff6be4c99adde8a3b0eebb12f18808ef802ff2e272"
+    },
+    {
+      "path": "nfsmw_nativo_destinos.h",
+      "upstream_sha256": "585d97631a5641a156d5bb6fb12052c0eff7f7392edffb5cea90a860ac9b2918"
+    },
+    {
+      "path": "nfsmw_nativo_dibujos.h",
+      "upstream_sha256": "d003a5b7a6be41b29b93f31385c882fc8a057784dec14f09746efd308f1e8af9"
+    },
+    {
+      "path": "nfsmw_nativo_ganchos.cpp",
+      "upstream_sha256": "b6ea49e5df65fb5bec7c1fbd0f20542583547d893a5f73636be8082761c5e17f"
+    },
+    {
+      "path": "nfsmw_nativo_ganchos.h",
+      "upstream_sha256": "f3663dd850f98272c4fc56b266f913aebdb13b1a6a4be2f03ec14e17ac381ca2"
+    },
+    {
+      "path": "nfsmw_nativo_peticion.h",
+      "upstream_sha256": "0bc4e7e43d9ec4c126dbcf089e1fd360bd632cf7f322421260da21f47089c020"
+    },
+    {
+      "path": "nfsmw_nativo_shaders.cpp",
+      "upstream_sha256": "c1256095db60df3c278d4363e04f79ec329ed468559ba9a3765abc93fa45e250"
+    },
+    {
+      "path": "nfsmw_nativo_shaders.h",
+      "upstream_sha256": "fb854775847731af066168ac314120cd1eb75bb181eadfc70e3aceac86446b9b"
+    },
+    {
+      "path": "nfsmw_nativo_sistema.cpp",
+      "upstream_sha256": "b8aa95a63b9d30168fa7ec5ab618b07debcc3c4a43e30464b797ca30104ada9e"
+    },
+    {
+      "path": "nfsmw_nativo_sistema.h",
+      "upstream_sha256": "6189847fc9e2a224d734f490f44a1ca24088a1df15c817f5e0a8f253fc5bc936"
+    },
+    {
+      "path": "nfsmw_nativo_vertices_dedupe.h",
+      "upstream_sha256": "4d8c39d1374ad3f935ed77827b8f99afbc3807e9d142e7f62cb56f606fb92726"
+    },
+    {
+      "path": "nfsmw_nativo_xenos.h",
+      "upstream_sha256": "2de11ae9e222ac71d2347baf868fe7921f698c9b5356556f7344a19687448a98"
+    },
+    {
+      "path": "nfsmw_shader_library.cpp",
+      "upstream_sha256": "55f65e65b352bfd567029458b40455ac35fe14dafc202781d8e3f5eae0754ded"
+    },
+    {
+      "path": "nfsmw_shader_library.h",
+      "upstream_sha256": "8c5e231010dc0473fa2cef27e618dc6716df71e02761368bdd403e7bd1426cd9"
+    }
+  ]
+}

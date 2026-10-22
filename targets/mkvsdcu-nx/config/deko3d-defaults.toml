@@ -1,0 +1,9 @@
+# Native deko3d build. Place next to the NRO as mkvsdcu.toml.
+gpu_frame_rate_limit = 60
+vsync = true
+mkvsdcu_espera_anillo_bloqueante = true
+mkvsdcu_espera_anillo_us = 200
+mkvsdcu_ring_wait_diagnostics = false
+mkvsdcu_watchdog_diagnostics = false
+# Preserve the system clock profile unless explicitly changed in the port menu.
+mkvsdcu_switch_gpu_mhz = 0

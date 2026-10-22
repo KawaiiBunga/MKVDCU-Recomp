@@ -44,6 +44,16 @@ else()
     add_executable(mkvsdcu ${MKVSDCU_SOURCES})
 endif()
 
+option(MKVSDCU_D3D_TRACE "Build optional original-renderer D3D migration trace (Windows)" OFF)
+if(MKVSDCU_D3D_TRACE)
+    if(NOT WIN32)
+        message(FATAL_ERROR "MKVSDCU_D3D_TRACE currently requires Windows ReadProcessMemory")
+    endif()
+    target_sources(mkvsdcu PRIVATE src/telemetry/d3d_trace.cpp)
+    target_compile_definitions(mkvsdcu PRIVATE MKVSDCU_D3D_TRACE_BUILD=1)
+    target_link_libraries(mkvsdcu PRIVATE bcrypt)
+endif()
+
 # This is target-private host plumbing. The plugin remains selectable at
 # launch via --gpu_plugin xenos; no UE3 or game code is altered here.
 rexglue_setup_target(mkvsdcu GPU_PLUGINS xenos)

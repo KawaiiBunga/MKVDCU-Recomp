@@ -49,6 +49,9 @@ class MkvsdcuApp : public rex::ReXApp {
   std::unique_ptr<telemetry::SystemSampler> sampler_;
   telemetry::GuestProfiler profiler_;
   std::thread auto_profile_;
+#if defined(MKVSDCU_D3D_TRACE_BUILD)
+  std::thread d3d_trace_exit_;
+#endif
   std::atomic<bool> stopping_{false};
   PortMenuDialog* port_menu_ = nullptr;
   PerfOverlay* perf_overlay_ = nullptr;

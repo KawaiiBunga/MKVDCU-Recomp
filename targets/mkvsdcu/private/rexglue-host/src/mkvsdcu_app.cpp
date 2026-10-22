@@ -132,6 +132,20 @@ void MkvsdcuApp::OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) {
 }
 
 void MkvsdcuApp::OnPostSetup() {
+#if defined(MKVSDCU_D3D_TRACE_BUILD)
+  // Diagnostic launches can stay out of the user's way and close themselves.
+  wchar_t trace_option[32];
+  if (GetEnvironmentVariableW(L"MKVSDCU_D3D_TRACE_HIDE_WINDOW", trace_option, 32) && trace_option[0] == L'1') {
+    ShowWindow(static_cast<HWND>(window()->GetNativeWindowHandle()), SW_HIDE);
+  }
+  if (GetEnvironmentVariableW(L"MKVSDCU_D3D_TRACE_SECONDS", trace_option, 32)) {
+    const unsigned seconds = wcstoul(trace_option, nullptr, 10);
+    if (seconds > 0 && seconds <= 3600) d3d_trace_exit_ = std::thread([this, seconds] {
+      for (unsigned n = 0; n < seconds * 10 && !stopping_; ++n) Sleep(100);
+      if (!stopping_) app_context().CallInUIThreadDeferred([this] { if (window()) window()->RequestClose(); });
+    });
+  }
+#endif
   sampler_ = std::make_unique<telemetry::SystemSampler>([this]() -> uint32_t {
     auto* graphics = static_cast<rex::graphics::GraphicsSystem*>(runtime()->graphics_system());
     auto* processor = graphics ? graphics->command_processor() : nullptr;
@@ -171,6 +185,9 @@ void MkvsdcuApp::OnPostSetup() {
 
 void MkvsdcuApp::OnShutdown() {
   stopping_ = true;
+#if defined(MKVSDCU_D3D_TRACE_BUILD)
+  if (d3d_trace_exit_.joinable()) d3d_trace_exit_.join();
+#endif
   if (auto_profile_.joinable()) auto_profile_.join();
   rex::ui::UnregisterBind("bind_port_menu");
   rex::ui::UnregisterBind("bind_perf_overlay");
