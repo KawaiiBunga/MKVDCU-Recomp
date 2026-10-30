@@ -1,0 +1,114 @@
+--- a/src/input/switch/switch_input_driver.cpp
++++ b/src/input/switch/switch_input_driver.cpp
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <rex/input/switch/switch_input_driver.h>
++#include <rex/input/switch/mkvsdcu_menu_input.h>
+ 
+ #include <algorithm>
+ #include <array>
+@@ -30,6 +31,9 @@
+ REXCVAR_DEFINE_BOOL(input_xbox_layout, false, "Input",
+                     "Face buttons by position, as on an Xbox pad (the bottom button, B, acts as A). "
+                     "false = by letter: A accepts and B goes back");
++
++REXCVAR_DEFINE_INT32(mkvsdcu_stick_deadzone, 0, "MKvDCU/Input", "Stick deadzone in percent").range(0, 40);
++REXCVAR_DEFINE_BOOL(mkvsdcu_swap_sticks, false, "MKvDCU/Input", "Swap left and right sticks");
+ 
+ namespace rex::ui {
+ // rex/ui/overlay/debug_overlay.h (not included here because it pulls in ImGui).
+@@ -219,6 +223,7 @@
+   bool vibration_sent = false;
+   uint16_t vibration_left = 0;
+   uint16_t vibration_right = 0;
++  mkvsdcu::MenuChord port_menu_chord;
+ };
+ 
+ SwitchInputDriver::SwitchInputDriver(rex::ui::Window* window, size_t window_z_order)
+@@ -309,6 +314,9 @@
+       buttons |= mapping.xinput;
+     }
+   }
++  // Consume the port chord until release, including the menu-close frame.
++  buttons &= uint16_t(~((slot.port_menu_chord.consumed & HidNpadButton_Plus ? X_INPUT_GAMEPAD_START : 0) |
++                       (slot.port_menu_chord.consumed & HidNpadButton_Minus ? X_INPUT_GAMEPAD_BACK : 0)));
+   gamepad.buttons = buttons;
+   // ZL and ZR are digital.
+   gamepad.left_trigger = (held & HidNpadButton_ZL) ? 0xFF : 0;
+@@ -316,10 +324,12 @@
+   // HID reports up as positive Y, like XInput, so no inversion is needed.
+   const HidAnalogStickState left = padGetStickPos(&slot.pad, 0);
+   const HidAnalogStickState right = padGetStickPos(&slot.pad, 1);
+-  gamepad.thumb_lx = ClampStickAxis(left.x);
+-  gamepad.thumb_ly = ClampStickAxis(left.y);
+-  gamepad.thumb_rx = ClampStickAxis(right.x);
+-  gamepad.thumb_ry = ClampStickAxis(right.y);
++  const int deadzone = REXCVAR_GET(mkvsdcu_stick_deadzone);
++  const bool swap = REXCVAR_GET(mkvsdcu_swap_sticks);
++  gamepad.thumb_lx = mkvsdcu::Deadzone(ClampStickAxis(swap ? right.x : left.x), deadzone);
++  gamepad.thumb_ly = mkvsdcu::Deadzone(ClampStickAxis(swap ? right.y : left.y), deadzone);
++  gamepad.thumb_rx = mkvsdcu::Deadzone(ClampStickAxis(swap ? left.x : right.x), deadzone);
++  gamepad.thumb_ry = mkvsdcu::Deadzone(ClampStickAxis(swap ? left.y : right.y), deadzone);
+   /*
+    * With the debug overlay open, L+R and the right stick move it (debug_overlay.cpp,
+    * on the UI thread). While L and R are held, the game sees neither those two
+@@ -363,6 +373,16 @@
+  * slot.menu_shortcuts with the state from the previous poll.
+  */
+ void SwitchInputDriver::DispatchMenuShortcuts(Slot& slot, uint64_t held) {
++  if (slot.port_menu_chord.Update(held, HidNpadButton_Plus | HidNpadButton_Minus)) {
++    auto toggle = [] {
++      rex::ui::KeyEvent key(nullptr, rex::ui::VirtualKey::kF4, 1, false, false, false, false, false);
++      rex::ui::ProcessKeyEvent(key);
++    };
++    auto* window = ventana_ui_.load(std::memory_order_acquire);
++    if (window) window->app_context().CallInUIThreadDeferred(toggle);
++    REXLOG_INFO("[port-menu] Plus + Minus");
++  }
++
+   struct Atajo {
+     uint64_t boton;
+     rex::ui::VirtualKey tecla;
+--- a/include/rex/ui/switch_imgui_input.h
++++ b/include/rex/ui/switch_imgui_input.h
+@@ -153,6 +153,9 @@
+   if ((leidos & kModificador) == kModificador) {
+     estado.de_atajo |= leidos & kDeAtajo;
+   }
++  if ((leidos & (kBotonPlus | kBotonMinus)) == (kBotonPlus | kBotonMinus)) {
++    estado.de_atajo |= kBotonPlus | kBotonMinus;
++  }
+   estado.de_atajo &= leidos;
+   const uint64_t b = leidos & ~estado.de_atajo;
+ 
+--- /dev/null
++++ b/include/rex/input/switch/mkvsdcu_menu_input.h
+@@ -0,0 +1,27 @@
++#pragma once
++#include <cstdint>
++
++namespace mkvsdcu {
++// One toggle per chord, rearmed only after BOTH buttons are released.
++struct MenuChord {
++  bool latched = false;
++  uint64_t consumed = 0;
++  bool Update(uint64_t held, uint64_t chord) {
++    consumed &= held;
++    if (!(held & chord)) latched = false;
++    if (!latched && (held & chord) == chord) {
++      latched = true;
++      consumed |= chord;
++      return true;
++    }
++    return false;
++  }
++};
++inline int16_t Deadzone(int32_t axis, int percent) {
++  const int threshold = percent * 32767 / 100;
++  const int magnitude = axis < 0 ? -axis : axis;
++  if (magnitude <= threshold) return 0;
++  const int value = (magnitude - threshold) * 32767 / (32767 - threshold);
++  return int16_t(axis < 0 ? -value : value);
++}
++}  // namespace mkvsdcu

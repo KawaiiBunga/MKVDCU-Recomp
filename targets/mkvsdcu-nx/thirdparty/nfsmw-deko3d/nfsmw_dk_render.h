@@ -35,6 +35,7 @@
 #include "nfsmw_dk_geometria.h"
 #include "nfsmw_dk_nucleo.h"
 #include "mkvsdcu_edram_clear.h"
+#include "mkvsdcu_draw_cache.h"
 #include "nfsmw_nativo_destinos.h"
 #include "nfsmw_nativo_vertices_dedupe.h"
 
@@ -58,6 +59,7 @@ struct ImagenDk {
   DkImageType tipo = DkImageType_2D;
   DkImageFormat formato = DkImageFormat_None;
   uint32_t ancho = 0, alto = 0;
+  float render_scale = 1.f;  // logical guest coordinates -> rendered texels
   uint32_t capas = 1;  // 6 for a cubemap, the slices of a 3D texture
   uint32_t niveles = 1;
   bool profundidad = false;
@@ -384,6 +386,7 @@ class RenderDk final : public DestinosNativos {
     bool interpoladores_listos = false;
     uint32_t textures = 0, textures_3d = 0, textures_cube = 0;
     bool resources_ready = false;
+    bool frag_coord = false;
   };
   InfoShader& InfoDe(const EntradaShader& entrada);
   void RecogerCompilaciones();
@@ -493,6 +496,14 @@ class RenderDk final : public DestinosNativos {
   };
   std::array<CacheFetch, 512> cache_fetch_{};
   uint64_t generacion_texturas_ = 1;  // goes up when a resolved texture appears or changes size
+  mkvsdcu::TextureBindingCache<> binding_cache_;
+  bool binding_cache_failed_ = false;
+  uint64_t binding_queries_=0, binding_hits_=0, binding_checks_=0, binding_differences_=0;
+  uint64_t report_binding_queries_=0, report_binding_hits_=0, report_binding_checks_=0;
+  uint32_t draw_timing_sequence_=0;
+  uint64_t draw_timing_samples_=0, report_draw_timing_samples_=0;
+  uint64_t raw_cache_queries_=0, raw_cache_hits_=0, raw_cache_bytes_=0;
+  uint64_t report_raw_queries_=0, report_raw_hits_=0, report_raw_bytes_=0;
 
   // Shaders
   std::unordered_map<const EntradaShader*, InfoShader> info_shaders_;

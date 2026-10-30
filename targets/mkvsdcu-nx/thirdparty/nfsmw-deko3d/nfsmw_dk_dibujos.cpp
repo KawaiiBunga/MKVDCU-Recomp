@@ -1,3 +1,4 @@
+#include "mkvsdcu_render_scale.h"
 // nfsmw - deko3d renderer: each draw of the ring. See nfsmw_dk_render.h.
 //
 // The decisions are the Vulkan backend's (nfsmw_nativo_dibujos.cpp, Dibujar), ported as they are and in the same
@@ -36,6 +37,16 @@
 #include "mkvsdcu_dk_memory.h"
 #include "mkvsdcu_dk_formats.h"
 #include "mkvsdcu_dk_rectangles.h"
+#include "mkvsdcu_shader_variants.h"
+REXCVAR_DEFINE_BOOL(mkvsdcu_acyclic_vertex_shader, true, "MKvDCU", "Use the verified offline forward-only vertex shader variant when cached")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(mkvsdcu_texture_binding_cache, true, "MKvDCU", "Reuse complete texture/sampler results until their existing expiry")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(mkvsdcu_texture_cache_verify, false, "MKvDCU", "Verify every texture binding cache hit; initial/periodic checks always run");
+REXCVAR_DEFINE_INT32(mkvsdcu_draw_timing_interval, 8, "MKvDCU", "Draw CPU timing sample interval: 0 off, 1 full, 8 default")
+    .range(0, 1024).lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(mkvsdcu_raw_vertex_cache, true, "MKvDCU", "Reuse exact single-range raw vertex buffers through the existing geometry store")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 // The glow's bright pass variants (nfsmw_resplandor_cielo), made from the game's shader by tools/switch/dk_resplandor.py
 // and not distributed. Without them the setting keeps the game's shader, as in the Vulkan build.
 #if __has_include("nfsmw_dk_resplandor_spirv.h")
@@ -98,6 +109,11 @@ REXCVAR_DEFINE_BOOL(mkvsdcu_capture_compile_requests, true, "MKvDCU",
                     "Save missing exact GLSL variants before compilation for offline cache building")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
+REXCVAR_DEFINE_BOOL(mkvsdcu_runtime_optional_compiles, false, "MKvDCU",
+                    "Allow optional shader optimization compiles on Switch; these can block required shaders "
+                    "behind minute-long uam jobs. Cached optimizations are always used")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 namespace nfsmw::nativo {
 namespace {
 
@@ -149,6 +165,15 @@ void CaptureCompileRequest(const deko::CacheDksh::Clave& key,bool vertex,const s
   } else {
     REXLOG_WARN("[MKvDCU] could not save shader compile request {}",name);
   }
+}
+
+bool DeferOptionalCompile(const deko::CacheDksh::Clave& key, bool vertex, const std::string& glsl) {
+  CaptureCompileRequest(key, vertex, glsl);
+  if (REXCVAR_GET(mkvsdcu_runtime_optional_compiles)) return false;
+  REXLOG_INFO("[MKvDCU] optional {} shader {:016X} {:08X} {:08X} deferred to offline compilation; "
+              "using the cached semantic equivalent", vertex ? "VS" : "PS", key.huella,
+              key.especializacion, key.variante);
+  return true;
 }
 
 // The 16-byte registers of [desde, hasta) (bytes) that differ from `sombra` are pushed into the block at `bloque` and
@@ -895,6 +920,7 @@ RenderDk::InfoShader& RenderDk::InfoDe(const EntradaShader& entrada) {
     // What the pixel shader reads: the vertex shader variant (the PC tool does the same, nfsmw_dksh.cpp).
     const auto reflected = deko::SpirvAGlsl(entrada.shader->spirv, 0);
     info.interpoladores = reflected.interpoladores;
+    info.frag_coord = reflected.glsl.find("gl_FragCoord") != std::string::npos;
     info.textures = reflected.texturas;
     info.textures_3d = reflected.texturas_3d;
     info.textures_cube = reflected.texturas_cubo;
@@ -927,6 +953,7 @@ const DkShader* RenderDk::ShaderDe(const EntradaShader& entrada, uint32_t especi
   char nombre[64];
   std::snprintf(nombre, sizeof(nombre), "%s n%u %08X %08X", entrada.vertices ? "VS" : "PS", entrada.numero, espec,
                 variante);
+  uint32_t loaded_spec=espec,loaded_variant=variante;
   auto cargar = [&](const std::vector<uint8_t>& dksh) -> const DkShader* {
     auto shader = std::make_unique<DkShader>();
     if (!nucleo_.CargarShader(*shader, dksh, nombre)) {
@@ -936,7 +963,7 @@ const DkShader* RenderDk::ShaderDe(const EntradaShader& entrada, uint32_t especi
     if (puntero) {
       // For the GPU profile: uam's DkshHeader (code_sz at 12, programs_off at 16) and the program header's num_gprs
       // (at 8) and per_warp_scratch_sz (at 20).
-      DatosShaderDk datos{info.huella, entrada.numero, espec, variante, entrada.vertices};
+      DatosShaderDk datos{info.huella, entrada.numero, loaded_spec, loaded_variant, entrada.vertices};
       uint32_t cabecera[6] = {};
       if (dksh.size() >= sizeof(cabecera)) {
         std::memcpy(cabecera, dksh.data(), sizeof(cabecera));
@@ -957,11 +984,31 @@ const DkShader* RenderDk::ShaderDe(const EntradaShader& entrada, uint32_t especi
     const auto* result=cache_.Buscar(key);
     return result ? result : cache_precompilada_.Buscar(key);
   };
+  // This optimization is precompiled and versioned independently. Never compile
+  // a tagged key from the old SPIR-V or discard the existing correct fallback.
+  if (mkvsdcu::AcyclicVertexEligible(entrada.vertices,info.huella,espec) &&
+      REXCVAR_GET(mkvsdcu_acyclic_vertex_shader)) {
+    for (const uint32_t outputs : {variante,kTodasLasSalidas}) {
+      const deko::CacheDksh::Clave optimized{info.huella,mkvsdcu::kAcyclicVertexV1,outputs};
+      if (const auto* dksh=buscar_cache(optimized)) {
+        loaded_spec=optimized.especializacion;loaded_variant=outputs;
+        ++aciertos_cache_;
+        REXLOG_INFO("[MKvDCU] acyclic vertex v1: VS {:016X} n{} outputs {:08X} (requested {:08X})",
+          info.huella,entrada.numero,outputs,variante);
+        return cargar(*dksh);
+      }
+      if (variante==kTodasLasSalidas) break;
+    }
+  }
   if (const std::vector<uint8_t>* dksh = buscar_cache(clave_cache)) {
     ++aciertos_cache_;
     return cargar(*dksh);
   }
-  static const bool en_fondo = REXCVAR_GET(nfsmw_dk_compilar_en_fondo);
+  // Missing optional variants must use their correct base shader even when
+  // the legacy setting asks for synchronous optimization compiles. uam cannot
+  // preempt an optional job to serve a newly required semantic specialization.
+  static const bool en_fondo = REXCVAR_GET(nfsmw_dk_compilar_en_fondo) ||
+                              !REXCVAR_GET(mkvsdcu_runtime_optional_compiles);
   if (entrada.vertices && variante != kTodasLasSalidas && en_fondo &&
       buscar_cache({info.huella, espec, kTodasLasSalidas})) {
     // The variant with every interpolator draws the same (the pixel shader ignores the rest) while the exact one
@@ -969,8 +1016,7 @@ const DkShader* RenderDk::ShaderDe(const EntradaShader& entrada, uint32_t especi
     const uint64_t h = XXH3_64bits(&clave_cache, sizeof(clave_cache));
     if (en_fondo_.emplace(h, true).second) {
       const deko::GlslDeko g = deko::SpirvAGlsl(entrada.shader->spirv, espec, variante);
-      if (!g.glsl.empty()) {
-        CaptureCompileRequest(clave_cache,true,g.glsl);
+      if (!g.glsl.empty() && !DeferOptionalCompile(clave_cache, true, g.glsl)) {
         std::weak_ptr<Bandeja> bandeja = bandeja_;
         compilador_.Encolar(true, g.glsl, [bandeja, clave_cache](deko::Compilador::Resultado r) {
           if (const auto b = bandeja.lock()) {
@@ -986,7 +1032,7 @@ const DkShader* RenderDk::ShaderDe(const EntradaShader& entrada, uint32_t especi
     }
     return ShaderDe(entrada, especializacion, kTodasLasSalidas);
   }
-  if (!entrada.vertices && variante_ps && en_fondo) {
+  if (!entrada.vertices && (variante_ps & kVarianteZTemprana) && en_fondo) {
     // A pixel shader variant draws as the library's shader while it compiles on the worker: the same image (early
     // depth only changes speed) or, for the glow, the game's own bright pass for a few frames.
     const uint64_t h = XXH3_64bits(&clave_cache, sizeof(clave_cache));
@@ -996,21 +1042,23 @@ const DkShader* RenderDk::ShaderDe(const EntradaShader& entrada, uint32_t especi
         if (variante_ps & kVarianteZTemprana) {
           DeclararZTemprana(g.glsl);
         }
-        CaptureCompileRequest(clave_cache,false,g.glsl);
-        std::weak_ptr<Bandeja> bandeja = bandeja_;
-        compilador_.Encolar(false, g.glsl, [bandeja, clave_cache](deko::Compilador::Resultado r) {
-          if (const auto b = bandeja.lock()) {
-            std::lock_guard<std::mutex> cerrojo(b->candado);
-            if (r.ok) {
-              b->hechas.emplace_back(clave_cache, std::move(r.dksh));
-            } else {
-              ++b->fallidas;
+        if (variante_ps & mkvsdcu::kLogicalFragCoordV1) mkvsdcu::LogicalFragCoord(g.glsl);
+        if (!DeferOptionalCompile(clave_cache, false, g.glsl)) {
+          std::weak_ptr<Bandeja> bandeja = bandeja_;
+          compilador_.Encolar(false, g.glsl, [bandeja, clave_cache](deko::Compilador::Resultado r) {
+            if (const auto b = bandeja.lock()) {
+              std::lock_guard<std::mutex> cerrojo(b->candado);
+              if (r.ok) {
+                b->hechas.emplace_back(clave_cache, std::move(r.dksh));
+              } else {
+                ++b->fallidas;
+              }
             }
-          }
-        });
+          });
+        }
       }
     }
-    return ShaderDe(entrada, especializacion, salidas, 0);
+    return ShaderDe(entrada, especializacion, salidas, variante_ps & ~kVarianteZTemprana);
   }
   // On the spot (it blocks the ring thread for one compile: ~40-100 ms on the console).
   const uint64_t inicio = deko::AhoraNs();
@@ -1023,6 +1071,7 @@ const DkShader* RenderDk::ShaderDe(const EntradaShader& entrada, uint32_t especi
   if (!entrada.vertices && (variante_ps & kVarianteZTemprana)) {
     DeclararZTemprana(g.glsl);
   }
+  if (!entrada.vertices && (variante_ps & mkvsdcu::kLogicalFragCoordV1)) mkvsdcu::LogicalFragCoord(g.glsl);
   CaptureCompileRequest(clave_cache,entrada.vertices,g.glsl);
   REXLOG_INFO("[MKvDCU] waiting for exact shader {} to compile",nombre);
   const deko::Compilador::Resultado r = compilador_.Compilar(entrada.vertices, g.glsl);
@@ -1158,13 +1207,16 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
   if (!r || !p.vs || !p.vs->shader) {
     return false;
   }
-  const uint64_t inicio_ns = deko::AhoraNs();
-  const uint64_t espera_inicio_ns = nucleo_.NsEsperandoValla();  // waits for the GPU are not recording time
+  static const uint32_t timing_interval=uint32_t(REXCVAR_GET(mkvsdcu_draw_timing_interval));
+  const bool timed=mkvsdcu::SampleDraw(++draw_timing_sequence_,timing_interval);
+  const uint64_t inicio_ns = timed ? deko::AhoraNs() : 0;
+  const uint64_t espera_inicio_ns = timed ? nucleo_.NsEsperandoValla() : 0;
   // Stage times (ns_etapas_), without the waits for the GPU that may happen inside a stage.
   uint64_t marca_etapa = inicio_ns, espera_etapa = espera_inicio_ns;
   auto cortar_etapa = [&](uint32_t etapa) {
+    if(!timed) return;
     const uint64_t ahora = deko::AhoraNs(), espera = nucleo_.NsEsperandoValla();
-    ns_etapas_[etapa] += (ahora - marca_etapa) - (espera - espera_etapa);
+    ns_etapas_[etapa] += ((ahora - marca_etapa) - (espera - espera_etapa))*timing_interval;
     marca_etapa = ahora;
     espera_etapa = espera;
   };
@@ -1456,6 +1508,8 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
   std::array<DkResHandle,32> texturas{}, vertex_textures{};
   uint32_t n_texturas=0, n_vertex_textures=0;
   uint32_t tex0_ancho=0, tex0_alto=0, tex0_formato=0, tex0_sampler=0;
+  static const bool binding_cache_enabled=REXCVAR_GET(mkvsdcu_texture_binding_cache);
+  bool any_binding=false, all_bindings_cached=true;
   const auto prepare_stage = [&](const EntradaShader& shader, auto& handles, uint32_t& count) {
     const auto& info=InfoDe(shader);
     for(uint32_t binding=0;binding<32;++binding) {
@@ -1464,6 +1518,19 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
       if(!(description&0x80000000u)) return;
       const uint32_t slot=description&31;
       const uint32_t* fetch=r+kRegFetch+slot*6;
+      any_binding=true;++binding_queries_;
+      const uint32_t address=fetch[1]&0x1FFFF000;
+      // These lookups can materialize a pending front-buffer copy, or refresh
+      // cubemap faces. Preserve those side effects instead of memoizing them.
+      const bool cacheable=(fetch[5]>>9&3)!=3 &&
+        !(frontal_.pendiente && address==frontal_.base) && address!=frontal_obsoleta_;
+      mkvsdcu::TextureBinding prepared;
+      const auto* cached=binding_cache_enabled && !binding_cache_failed_ && cacheable
+        ? binding_cache_.Find(fetch,description,fotograma_,generacion_texturas_,trabajo_) : nullptr;
+      const bool verify=cached && (binding_checks_<128 || (binding_hits_&4095)==0 || REXCVAR_GET(mkvsdcu_texture_cache_verify));
+      if(cached) {prepared=*cached;++binding_hits_;}
+      else all_bindings_cached=false;
+      if(!cached || verify) {
       const uint16_t type=((description>>5)&3)==3 ? 14 : ((description>>5)&3)==2 ? 13 : 12;
       uint32_t width=0,height=0; bool point=false; uint64_t valid_until=0;
       const uint32_t image=PrepararTextura(fetch,type,width,height,point,valid_until,(description&0x40000000u)!=0);
@@ -1475,9 +1542,6 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
       const uint32_t aniso=(description>>13)&7;
       if(aniso!=7) sampler_state[3]=(sampler_state[3]&~(7u<<25))|(aniso<<25);
       const uint32_t sampler=SamplerDe(sampler_state,point);
-      handles[binding]=dkMakeTextureHandle(image,sampler);
-      count=std::max(count,binding+1);
-      if(binding==0) { tex0_ancho=width;tex0_alto=height;tex0_formato=fetch[1]&63;tex0_sampler=sampler; }
       uint32_t control=((fetch[3]>>13)&63)<<8;
       for(uint32_t lane=0;lane<4;++lane) {
         const uint32_t source=(fetch[3]>>(1+lane*3))&7;
@@ -1485,17 +1549,37 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
       }
       if(const auto* resolved=TexturaResuelta(fetch[1]&0x1FFFF000); resolved && resolved->formato==DkImageFormat_ZF32_X24S8)
         control|=1u<<14;
-      compartidas[(&shader==p.vs ? 248 : 280)+binding/2]=control;
       const float inverse[2]={width?1.0f/width:0.0f,height?1.0f/height:0.0f};
-      if(slot<16) std::memcpy(compartidas+kPalabraInvTamano+slot*2,inverse,sizeof(inverse));
+      mkvsdcu::TextureBinding fresh{image,sampler,width,height,control,0,0,valid_until};
+      std::memcpy(&fresh.inverse_width,inverse,sizeof(inverse));
+      if(verify) {
+        ++binding_checks_;
+        if(prepared!=fresh) {++binding_differences_;binding_cache_failed_=true;
+          REXLOG_ERROR("[MKvDCU] texture binding cache mismatch; disabled for this session");}
+      }
+      prepared=fresh;
+      if(binding_cache_enabled && !binding_cache_failed_ && cacheable)
+        binding_cache_.Store(fetch,description,generacion_texturas_,trabajo_,prepared);
+      }
+      handles[binding]=dkMakeTextureHandle(prepared.image,prepared.sampler);
+      count=std::max(count,binding+1);
+      if(binding==0) {tex0_ancho=prepared.width;tex0_alto=prepared.height;tex0_formato=fetch[1]&63;tex0_sampler=prepared.sampler;}
+      compartidas[(&shader==p.vs ? 248 : 280)+binding/2]=prepared.control;
+      if(slot<16) std::memcpy(compartidas+kPalabraInvTamano+slot*2,&prepared.inverse_width,8);
     }
   };
   if(ps) prepare_stage(*ps,texturas,n_texturas);
   prepare_stage(*p.vs,vertex_textures,n_vertex_textures);
+  if(any_binding && all_bindings_cached) ++texturas_reusadas_;
   std::memcpy(compartidas+320,entrada->native_bound.data(),sizeof(entrada->native_bound));
   deko::MemoriaDibujo memory;
   if(!memory.Prepare(nucleo_,*memoria_,*p.vs->shader,r,compartidas))
     return Rechazar(61,"invalid raw fetch or memory export range");
+  static const bool raw_cache=REXCVAR_GET(mkvsdcu_raw_vertex_cache);
+  if(raw_cache && memory.reads.size()==1 && !memory.exported) {
+    ++raw_cache_queries_;
+    if(memory.CacheSingleRange(*memoria_,geometria_)) {++raw_cache_hits_;raw_cache_bytes_+=memory.raw_bytes;}
+  }
   compartidas[240]=vmin;
   compartidas[241]=std::bit_cast<uint32_t>((r[gr::XE_GPU_REG_RB_DEPTH_INFO]>>16&1) ? 0.5f : 1.0f);
 
@@ -1505,7 +1589,7 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
       con_indices && !indices_almacen.gpu ? (indices_de_16 ? n_indices * 2 : n_indices * 4) : 0;
   const uint32_t bytes_vs = std::min<uint32_t>(p.vs->constantes_bytes, kRegistrosConstantes * 4);
   const uint32_t bytes_ps = ps ? std::min<uint32_t>(ps->constantes_bytes, kRegistrosConstantes * 4) : 0;
-  const uint32_t necesarios = bytes_vertices + bytes_indices + memory.raw_bytes + 32 + 3 * DK_UNIFORM_BUF_ALIGNMENT +
+  const uint32_t necesarios = bytes_vertices + bytes_indices + memory.UploadBytes() + 32 + 3 * DK_UNIFORM_BUF_ALIGNMENT +
                               std::max(bytes_vs, kUboBytesVs) + std::max(bytes_ps, kUboBytesPs) + kUboBytesCompartidas;
   const uint32_t rebanada = nucleo_.config().mb_subida << 20;
   if (necesarios > rebanada) {
@@ -1604,7 +1688,10 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
   if (huella_ps == kHuellaComposicion && REXCVAR_GET(nfsmw_nativo_sin_desenfoque)) {
     especializacion |= kSpecSinDesenfoque;
   }
-  uint32_t variante_ps = 0;
+  const float scene_scale = imagenes_pase_[0] ? imagenes_pase_[0]->render_scale :
+                            imagenes_pase_[4] ? imagenes_pase_[4]->render_scale : 1.f;
+  uint32_t variante_ps = ps && scene_scale != 1.f && InfoDe(*ps).frag_coord ? mkvsdcu::kLogicalFragCoordV1 : 0;
+  compartidas[242] = std::bit_cast<uint32_t>(1.f / scene_scale);
 #if NFSMW_DK_RESPLANDOR
   if (huella_ps == kHuellaBrightPass) {
     const int modo = nfsmw::ajustes::ResplandorCielo();  // 0 original, 1 natural, 2 soft
@@ -1846,6 +1933,7 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
       vp[1] = viewport[1] + viewport[3];
       vp[3] = -viewport[3];
     }
+    mkvsdcu::ScaleViewport(vp, scene_scale);
     if (!g_.valido || std::memcmp(vp, g_.viewport, sizeof(vp)) != 0) {
       const DkViewport v = {vp[0], vp[1], vp[2], vp[3], vp[4], vp[5]};
       dkCmdBufSetViewports(cmd, 0, &v, 1);
@@ -1857,9 +1945,10 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
       dkCmdBufSetViewportSwizzles(cmd, 0, &sw, 1);
       g_.volteado = volteado;
     }
-    if (!g_.valido || !Iguales(tijera, g_.tijera)) {
-      dkCmdBufSetScissors(cmd, 0, &tijera, 1);
-      g_.tijera = tijera;
+    const auto raster_scissor = mkvsdcu::ScaleRect(tijera, scene_scale);
+    if (!g_.valido || !Iguales(raster_scissor, g_.tijera)) {
+      dkCmdBufSetScissors(cmd, 0, &raster_scissor, 1);
+      g_.tijera = raster_scissor;
     }
   }
   if (!g_.valido || entrada != g_.entrada) {
@@ -2056,7 +2145,7 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
   }
   }
 
-  if(!memory.Bind(nucleo_,*memoria_)) return Rechazar(13,"raw fetch upload does not fit");
+  if(!memory.Bind(nucleo_,*memoria_,geometria_,trabajo_)) return Rechazar(13,"raw fetch upload does not fit");
   // --- The draw
   if (es_cielo) {
     // Deferred: its state is what g_ holds now; its buffers stay in this slot's ring until the work is submitted, and
@@ -2174,7 +2263,8 @@ bool RenderDk::Dibujar(const PeticionDibujo& p) {
     InvalidateDepthAliasClears(imagenes_pase_[4]->edram.base);
   ++dibujados_;
   cortar_etapa(5);
-  ns_grabando_ += deko::AhoraNs() - inicio_ns - (nucleo_.NsEsperandoValla() - espera_inicio_ns);
+  if(timed) {++draw_timing_samples_;
+    ns_grabando_ += (deko::AhoraNs() - inicio_ns - (nucleo_.NsEsperandoValla() - espera_inicio_ns))*timing_interval;}
   return true;
 }
 

@@ -1,5 +1,6 @@
 #include "mkvsdcu_app_switch.h"
 #include "mkvsdcu_port_menu.h"
+#include "mkvsdcu_pgo.h"
 #include <rex/ui/switch_apm.h>
 #include "generated/default/mkvsdcu_init.h"
 
@@ -17,6 +18,34 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cstring>
+#include <imgui.h>
+
+REXCVAR_DEFINE_BOOL(mkvsdcu_show_fps, false, "MKvDCU", "Show the compact gameplay FPS counter");
+REXCVAR_DEFINE_INT32(mkvsdcu_fps_limit, 60, "MKvDCU", "Rendered frame cap: 0 uncapped, 30 or 60")
+    .range(0, 60);
+
+namespace {
+class MkvsdcuFpsCounter final : public rex::ui::ImGuiDialog {
+ public:
+  MkvsdcuFpsCounter(rex::ui::ImGuiDrawer* drawer, std::function<rex::ui::FrameStats()> stats)
+      : ImGuiDialog(drawer), stats_(std::move(stats)) {}
+ private:
+  void OnDraw(ImGuiIO&) override {
+    const auto stats = stats_();
+    ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(.7f);
+    ImGui::Begin("MKvDCU FPS", nullptr, ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoSavedSettings);
+    ImGui::Text("%.1f FPS | %.1f ms", stats.fps, stats.frame_time_ms);
+    const auto* training_label = mkvsdcu::pgo::Label();
+    if(*training_label) ImGui::TextUnformatted(training_label);
+    ImGui::End();
+  }
+  std::function<rex::ui::FrameStats()> stats_;
+};
+}  // namespace
 
 REXCVAR_DEFINE_BOOL(mkvsdcu_watchdog_diagnostics, false, "MKvDCU",
                     "Write routine detailed thread snapshots; stalls are always reported");
@@ -29,6 +58,7 @@ REXCVAR_DEFINE_INT32(mkvsdcu_switch_gpu_mhz, 0, "MKvDCU",
 std::atomic<uint64_t> g_mkvsdcu_frames_rendered{0};
 
 MkvsdcuAppSwitch::~MkvsdcuAppSwitch() {
+  mkvsdcu::pgo::Stop();
   StopHangWatchdog();
 }
 
@@ -152,18 +182,35 @@ void MkvsdcuAppSwitch::OnPreSetup(rex::RuntimeConfig& config) {
 }
 
 void MkvsdcuAppSwitch::OnPostSetup() {
+  mkvsdcu::pgo::Start();
   // Guest frame stats telemetry for overlay
   SetGuestFrameStats([this] { return SampleFrameStats(); });
 
   RexSwitchApmPedirGpuMhz(REXCVAR_GET(mkvsdcu_switch_gpu_mhz));
   RexSwitchApmPermitirRam1600(0);
   RexSwitchApmAplicar();
-  REXLOG_INFO("[mkvsdcu] Port menu: hold L + R and press D-pad Right.");
+  REXLOG_INFO("[mkvsdcu] Port menu: press Plus and Minus together.");
+#ifdef MKVSDCU_CPU_OPTIMIZATIONS
+  REXLOG_INFO("[mkvsdcu] CPU build: staged atomic regions, RAM/loop barriers, vector float loads, cold traps.");
+#endif
 
   // Start autonomous hang watchdog
   StartHangWatchdog();
 
   REXLOG_INFO("[mkvsdcu] Switch runtime initialized with active diagnostics and telemetry.");
+}
+
+void MkvsdcuAppSwitch::OnCreateDialogs(rex::ui::ImGuiDrawer*) {
+  UpdateFpsCounter();
+}
+
+void MkvsdcuAppSwitch::UpdateFpsCounter() {
+  if (REXCVAR_GET(mkvsdcu_show_fps)) {
+    if (!fps_counter_) fps_counter_ = std::make_unique<MkvsdcuFpsCounter>(
+        imgui_drawer(), [this] { return SampleFrameStats(); });
+  } else {
+    fps_counter_.reset();
+  }
 }
 
 std::unique_ptr<rex::ui::SettingsDialog> MkvsdcuAppSwitch::CreateSettingsOverlay() {
@@ -176,10 +223,13 @@ std::unique_ptr<rex::ui::SettingsDialog> MkvsdcuAppSwitch::CreateSettingsOverlay
     });
   };
   return std::make_unique<MkvsdcuPortMenu>(
-      imgui_drawer(), (rex::filesystem::GetExecutableFolder() / "mkvsdcu.toml"), [this] { return SampleFrameStats(); }, resume, advanced, port_menu_pending_settings_);
+      imgui_drawer(), (rex::filesystem::GetExecutableFolder() / "mkvsdcu.toml"), [this] { return SampleFrameStats(); }, resume, advanced, port_menu_pending_settings_,
+      [this] { app_context().CallInUIThreadDeferred([this] { UpdateFpsCounter(); }); });
 }
 
 void MkvsdcuAppSwitch::OnShutdown() {
+  mkvsdcu::pgo::Stop();
+  fps_counter_.reset();
   settings_overlay().reset();
   StopHangWatchdog();
 }

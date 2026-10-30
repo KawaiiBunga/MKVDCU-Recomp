@@ -5,5 +5,24 @@ mkvsdcu_espera_anillo_bloqueante = true
 mkvsdcu_espera_anillo_us = 200
 mkvsdcu_ring_wait_diagnostics = false
 mkvsdcu_watchdog_diagnostics = false
+# Use cached shader optimizations; save missing optional variants for PC compilation.
+mkvsdcu_runtime_optional_compiles = false
+# Reuse complete draw state; keep content validation and periodic cache audits.
+mkvsdcu_texture_binding_cache = true
+mkvsdcu_texture_cache_verify = false
+mkvsdcu_raw_vertex_cache = true
+# Verified offline variant for the profiled high-scratch vertex program.
+mkvsdcu_acyclic_vertex_shader = true
+# CPU stage estimates from approximately one in eight draws; 1 for full timing.
+mkvsdcu_draw_timing_interval = 8
 # Preserve the system clock profile unless explicitly changed in the port menu.
 mkvsdcu_switch_gpu_mhz = 0
+
+# Port menu: press + and - together.
+mkvsdcu_scene_scale = 100
+mkvsdcu_fps_limit = 60
+mkvsdcu_30fps_timing = false
+mkvsdcu_show_fps = false
+input_xbox_layout = false
+mkvsdcu_stick_deadzone = 0
+mkvsdcu_swap_sticks = false

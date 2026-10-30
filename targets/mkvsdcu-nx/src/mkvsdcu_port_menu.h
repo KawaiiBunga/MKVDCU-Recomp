@@ -13,18 +13,22 @@ class MkvsdcuPortMenu final : public rex::ui::SettingsDialog {
   MkvsdcuPortMenu(rex::ui::ImGuiDrawer* drawer, std::filesystem::path config,
                   std::function<rex::ui::FrameStats()> stats,
                   std::function<void()> resume, std::function<void()> advanced,
-                  std::map<std::string, std::string>& pending);
+                  std::map<std::string, std::string>& pending,
+                  std::function<void()> settings_changed);
  protected:
   void OnDraw(ImGuiIO& io) override;
  private:
   bool Set(const char* name, const std::string& value, bool restart = false);
   void Toggle(const char* label, const char* name, bool restart = false);
   void Save();
+  std::string Value(const char* name) const;
   std::filesystem::path config_;
   std::map<std::string, std::string>& pending_;
   std::function<rex::ui::FrameStats()> stats_;
   std::function<void()> resume_, advanced_;
+  std::function<void()> settings_changed_;
   std::string status_;
   bool restart_pending_ = false;
   bool focus_first_ = true;
+  int active_tab_ = 0;
 };

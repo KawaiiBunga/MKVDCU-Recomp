@@ -962,6 +962,7 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
   // structure: one from an earlier frame, because host queries are read when their work finishes. Anything
   // that does not fit keeps the old behavior (a faked count).
   void ConsultaOclusion(uint32_t direccion) {
+    g_sincronizaciones_anillo.fetch_add(1, std::memory_order_relaxed);
     using Cuentas = xenos::xe_gpu_depth_sample_counts;
     constexpr uint32_t kMarca = 0xEDFEFFFF;  // 0xFFFFFEED written big-endian by D3D, read as little-endian
     const auto marcada = [](const Cuentas* c) {
@@ -1167,6 +1168,7 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
       if ((UINT32_C(1) << n) & registros_[rex::graphics::XE_GPU_REG_SCRATCH_UMSK]) {
         const uint32_t direccion = registros_[rex::graphics::XE_GPU_REG_SCRATCH_ADDR] + n * 4;
         rex::memory::store_and_swap<uint32_t>(memory_->TranslatePhysical(direccion), valor);
+        g_sincronizaciones_anillo.fetch_add(1, std::memory_order_relaxed);
         SumarSoloAnillo(escrituras_memoria_);
       }
     }
@@ -1586,6 +1588,9 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
   void EscribirMemoria(uint32_t direccion, uint32_t valor) {
     const uint32_t ordenado = xenos::GpuSwap(valor, static_cast<xenos::Endian>(direccion & 0x3));
     std::memcpy(memory_->TranslatePhysical(direccion & ~uint32_t(0x3)), &ordenado, sizeof(ordenado));
+    // A completion write can release a guest waiter which reuses vertex data.
+    // Drop the renderer's per-work content proofs before its next draw.
+    g_sincronizaciones_anillo.fetch_add(1, std::memory_order_relaxed);
     SumarSoloAnillo(escrituras_memoria_);
   }
 
@@ -1758,6 +1763,7 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
       const uint32_t devolver = lectura_devuelta_.load(std::memory_order_acquire);
       if (devolver) {
         rex::memory::store_and_swap<uint32_t>(memory_->TranslatePhysical(devolver), leido);
+        g_sincronizaciones_anillo.fetch_add(1, std::memory_order_relaxed);
       }
       // After returning it: the game's D3D waits sleep until this notification (nfsmw_espera_anillo.cpp).
       AvisarProgresoAnillo();
@@ -1860,6 +1866,7 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
     switch (opcode) {
       case xenos::PM4_INTERRUPT: {
         if (palabras < 1) break;
+        g_sincronizaciones_anillo.fetch_add(1, std::memory_order_relaxed);
         AnotarVallaCopias();  // Measurement only
         const uint32_t cpus = datos.Leer();
         for (uint32_t cpu = 0; cpu < 6; ++cpu) {
@@ -2015,6 +2022,7 @@ class SistemaGraficoNativo final : public rex::system::IGraphicsSystem {
         for (size_t i = 0; i < std::size(extension); ++i) {
           rex::memory::store_and_swap<uint16_t>(destino + i * 2, extension[i]);
         }
+        g_sincronizaciones_anillo.fetch_add(1, std::memory_order_relaxed);
         break;
       }
       case xenos::PM4_EVENT_WRITE_ZPD: {

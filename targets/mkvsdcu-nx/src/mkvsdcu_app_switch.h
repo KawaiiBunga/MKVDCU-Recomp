@@ -32,12 +32,15 @@ class MkvsdcuAppSwitch : public rex::ReXApp {
   void OnPostInitLogging() override;
   void OnPreSetup(rex::RuntimeConfig& config) override;
   void OnPostSetup() override;
+  void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override;
   std::unique_ptr<rex::ui::SettingsDialog> CreateSettingsOverlay() override;
   void OnShutdown() override;
 
  private:
   void SetupContentPaths();
   static void SetCVarDefault(const char* name, const char* value);
+  void UpdateFpsCounter();
+  std::unique_ptr<rex::ui::ImGuiDialog> fps_counter_;
 
   rex::ui::FrameStats SampleFrameStats();
   void StartHangWatchdog();

@@ -5,12 +5,15 @@
 #include <fstream>
 #include <utility>
 #include <sstream>
+#include <iomanip>
+#include <toml++/toml.hpp>
 
 MkvsdcuPortMenu::MkvsdcuPortMenu(rex::ui::ImGuiDrawer* drawer, std::filesystem::path config,
     std::function<rex::ui::FrameStats()> stats, std::function<void()> resume,
-    std::function<void()> advanced, std::map<std::string, std::string>& pending)
+    std::function<void()> advanced, std::map<std::string, std::string>& pending,
+    std::function<void()> settings_changed)
     : SettingsDialog(drawer, config), config_(std::move(config)), pending_(pending), stats_(std::move(stats)),
-      resume_(std::move(resume)), advanced_(std::move(advanced)) { restart_pending_ = !pending_.empty(); }
+      resume_(std::move(resume)), advanced_(std::move(advanced)), settings_changed_(std::move(settings_changed)) { restart_pending_ = !pending_.empty(); }
 
 bool MkvsdcuPortMenu::Set(const char* name, const std::string& value, bool restart) {
   const auto* info = rex::cvar::GetFlagInfo(name);
@@ -22,6 +25,7 @@ bool MkvsdcuPortMenu::Set(const char* name, const std::string& value, bool resta
     status_ = std::string("Could not change ") + name;
     return false;
   }
+  if (settings_changed_) settings_changed_();
   restart_pending_ |= restart;
   status_ = restart ? "Changed for the next launch. Save settings before restarting."
                     : "Setting applied. Save settings to keep it after restarting.";
@@ -31,8 +35,13 @@ bool MkvsdcuPortMenu::Set(const char* name, const std::string& value, bool resta
 
 void MkvsdcuPortMenu::Toggle(const char* label, const char* name, bool restart) {
   if (!rex::cvar::GetFlagInfo(name)) return;
-  bool value = rex::cvar::GetFlagByName(name) == "true";
+  bool value = Value(name) == "true";
   if (ImGui::Checkbox(label, &value)) Set(name, value ? "true" : "false", restart);
+}
+
+std::string MkvsdcuPortMenu::Value(const char* name) const {
+  const auto it = pending_.find(name);
+  return it == pending_.end() ? rex::cvar::GetFlagByName(name) : it->second;
 }
 
 void MkvsdcuPortMenu::Save() {
@@ -42,17 +51,28 @@ void MkvsdcuPortMenu::Save() {
   temporary += ".port-menu.tmp";
   std::error_code ec;
   std::filesystem::remove(temporary, ec);
+  // Preserve unrelated values and tables (game paths, shader settings, saves).
+  // Read both documents before touching the existing file, and retain TOML types.
   std::string content;
-  std::istringstream current(rex::cvar::SerializeToTOML());
-  std::string line;
-  while (std::getline(current, line)) {
-    const auto equals = line.find(" = ");
-    if (equals == std::string::npos || !pending_.contains(line.substr(0, equals)))
-      content += line + "\n";
-  }
-  for (const auto& [name, value] : pending_) {
-    // The curated init-only override is the validated fsi/fbo renderer choice.
-    content += name + " = \"" + value + "\"\n";
+  try {
+    toml::table document;
+    if (std::filesystem::exists(config_)) document = toml::parse_file(config_.string());
+    const auto live = toml::parse(rex::cvar::SerializeToTOML());
+    constexpr const char* keys[] = {"mkvsdcu_scene_scale", "mkvsdcu_fps_limit", "mkvsdcu_show_fps", "mkvsdcu_30fps_timing",
+      "input_xbox_layout", "mkvsdcu_stick_deadzone", "mkvsdcu_swap_sticks", "audio_mute"};
+    for (const char* key : keys) {
+      if (const auto it = pending_.find(key); it != pending_.end()) {
+        // Curated restart-only choices retain their integer or boolean type.
+        auto value = toml::parse(std::string(key) + " = " + it->second);
+        document.insert_or_assign(key, *value.get(key));
+      } else if (const auto* value = live.get(key)) document.insert_or_assign(key, *value);
+    }
+    std::ostringstream output;
+    output << document;
+    content = output.str();
+  } catch (const toml::parse_error&) {
+    status_ = "Could not read settings. Existing configuration kept.";
+    return;
   }
   {
     std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
@@ -92,86 +112,93 @@ void MkvsdcuPortMenu::Save() {
 }
 
 void MkvsdcuPortMenu::OnDraw(ImGuiIO& io) {
-  bool open = true;
   ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * .06f, io.DisplaySize.y * .06f), ImGuiCond_Always);
   ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x * .88f, io.DisplaySize.y * .88f), ImGuiCond_Always);
-  ImGui::Begin("MKvDCU - Port menu", &open,
-               ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(.075f,.08f,.09f,.98f));
+  ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(.38f,.27f,.18f,1.f));
+  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.25f,.20f,.15f,1.f));
+  ImGui::Begin("MKvDCU | PORT SETTINGS", nullptr,
+      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+  ImGui::TextColored(ImVec4(.73f,.64f,.49f,1.f), "MORTAL KOMBAT vs. DC UNIVERSE");
   if (stats_) {
     const auto stats = stats_();
-    if (stats.fps > 0) ImGui::Text("Game: %.1f FPS  |  %.1f ms/frame", stats.fps, stats.frame_time_ms);
-    else ImGui::TextUnformatted("Waiting for game frames...");
+    ImGui::Text("%.1f FPS  |  %.1f ms/frame", stats.fps, stats.frame_time_ms);
   }
-  ImGui::TextDisabled("L + R + Right: toggle menu   |   D-pad: navigate   |   %s",
-                      io.ConfigNavSwapGamepadButtons ? "A: select   |   B: back" : "B: select   |   A: back");
+  ImGui::TextDisabled("+ and -: toggle  |  D-pad: navigate  |  L/R: tabs  |  %s",
+      io.ConfigNavSwapGamepadButtons ? "A: select, B: back" : "B: select, A: back");
   if (focus_first_) ImGui::SetKeyboardFocusHere();
   if (ImGui::Button("Resume game")) resume_();
   if (focus_first_) { ImGui::SetItemDefaultFocus(); focus_first_ = false; }
   ImGui::SameLine();
   if (ImGui::Button("Save settings")) Save();
-  ImGui::SameLine();
-  if (ImGui::Button("Advanced settings")) advanced_();
   if (!status_.empty()) ImGui::TextWrapped("%s", status_.c_str());
-  if (restart_pending_) ImGui::TextColored(ImVec4(1.f,.75f,.3f,1.f), "Some changes need a restart after saving.");
+  if (restart_pending_) ImGui::TextColored(ImVec4(1.f,.75f,.3f,1.f), "Save and restart to apply resolution/timing changes.");
   ImGui::Separator();
-
+  int requested_tab = -1;
+  if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) requested_tab = (active_tab_ + 3) % 4;
+  if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) requested_tab = (active_tab_ + 1) % 4;
+  auto tab = [&](const char* title, int index) {
+    const bool shown = ImGui::BeginTabItem(title, nullptr,
+        requested_tab == index ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+    if (shown) active_tab_ = index;
+    return shown;
+  };
   if (ImGui::BeginTabBar("port-tabs")) {
-    if (ImGui::BeginTabItem("Graphics")) {
-      ImGui::TextUnformatted("Renderer for next launch (restart required)");
-      const auto desired = pending_.find("render_target_path_vulkan");
-      const bool accurate = (desired == pending_.end() ? rex::cvar::GetFlagByName("render_target_path_vulkan") : desired->second) != "fbo";
-      if (ImGui::RadioButton("Accurate - complete fighting surfaces", accurate))
-        Set("render_target_path_vulkan", "fsi", true);
-      if (ImGui::RadioButton("Fast - experimental", !accurate))
-        Set("render_target_path_vulkan", "fbo", true);
-      ImGui::TextWrapped("Accurate preserves the hangar floor, but costs more GPU time. Fast uses host render targets and can omit floors and other surfaces.");
-      Toggle("Skip draws until their shader is ready", "vulkan_async_skip_incomplete_frames");
-      ImGui::TextWrapped("Antialiasing stays disabled for NVK stability. Shader skipping reduces compilation pauses, but newly encountered objects can appear late.");
-      ImGui::EndTabItem();
-    }
-    if (ImGui::BeginTabItem("Performance")) {
-      const bool normal = rex::cvar::GetFlagByName("vsync") == "true";
-      const std::string limit = rex::cvar::GetFlagByName("gpu_frame_rate_limit");
-      if (ImGui::RadioButton("Normal speed - up to 60 FPS", normal && limit == "60")) {
-        Set("vsync", "true"); Set("gpu_frame_rate_limit", "60");
-      }
-      if (ImGui::RadioButton("30 FPS ceiling", normal && limit == "30")) {
-        Set("vsync", "true"); Set("gpu_frame_rate_limit", "30");
-      }
-      if (ImGui::RadioButton("Unlocked - game speed can change", !normal)) Set("vsync", "false");
-      ImGui::TextWrapped("A ceiling limits fast frames; it cannot make a slow scene reach the target.");
-      Toggle("Let the CPU rest while waiting for the GPU", "mkvsdcu_espera_anillo_bloqueante");
-      if (rex::cvar::GetFlagInfo("mkvsdcu_espera_anillo_us")) {
-        int wait = std::stoi(rex::cvar::GetFlagByName("mkvsdcu_espera_anillo_us"));
-        if (ImGui::SliderInt("GPU wait interval (microseconds)", &wait, 20, 1000))
-          Set("mkvsdcu_espera_anillo_us", std::to_string(wait));
-      }
+    if (tab("Display", 0)) {
+#if MKVSDCU_DEKO3D
+      ImGui::TextColored(ImVec4(.73f,.64f,.49f,1.f), "SCENE RESOLUTION");
+      const std::string scale = Value("mkvsdcu_scene_scale");
+      if (ImGui::RadioButton("100% | Original scene (1040 x 624)", scale == "100")) Set("mkvsdcu_scene_scale", "100", true);
+      if (ImGui::RadioButton("75% | 780 x 468", scale == "75")) Set("mkvsdcu_scene_scale", "75", true);
+      if (ImGui::RadioButton("50% | 520 x 312", scale == "50")) Set("mkvsdcu_scene_scale", "50", true);
+      ImGui::TextWrapped("Lower scene resolution reduces GPU pixel work. Final output and this menu stay at 1280 x 720. Applies after saving and restarting.");
+#endif
       ImGui::Separator();
-      ImGui::TextUnformatted("Handheld GPU request (restart required)");
-      const std::string gpu = rex::cvar::GetFlagByName("mkvsdcu_switch_gpu_mhz");
-      if (ImGui::RadioButton("Keep console clock profile", gpu == "0")) Set("mkvsdcu_switch_gpu_mhz", "0", true);
-      if (ImGui::RadioButton("Official 384 MHz mode", gpu == "384")) Set("mkvsdcu_switch_gpu_mhz", "384", true);
-      if (ImGui::RadioButton("Official 460.8 MHz mode", gpu == "460")) Set("mkvsdcu_switch_gpu_mhz", "460", true);
-      ImGui::TextWrapped("Uses Horizon's official handheld modes. Memory clocks stay at their starting value; unsupported modes are rejected. Keep your clock profile if sys-clk manages it.");
-      Toggle("Log ring-wait statistics", "mkvsdcu_ring_wait_diagnostics");
+      ImGui::TextColored(ImVec4(.73f,.64f,.49f,1.f), "FRAME RATE");
+#if MKVSDCU_DEKO3D
+      Toggle("Experimental 30 Hz gameplay timing (restart)", "mkvsdcu_30fps_timing", true);
+      const bool timing30 = Value("mkvsdcu_30fps_timing") == "true";
+      if (timing30) ImGui::TextWrapped("30 Hz engine timing, 30 FPS pacing. Combat/timer behavior is under testing. Save and restart to apply.");
+      ImGui::BeginDisabled(timing30);
+#endif
+      const std::string fps = Value("mkvsdcu_fps_limit");
+      if (ImGui::RadioButton("60 FPS cap", fps == "60")) Set("mkvsdcu_fps_limit", "60");
+      if (ImGui::RadioButton("30 FPS cap", fps == "30")) Set("mkvsdcu_fps_limit", "30");
+      if (ImGui::RadioButton("Uncapped", fps == "0")) Set("mkvsdcu_fps_limit", "0");
+#if MKVSDCU_DEKO3D
+      ImGui::EndDisabled();
+#endif
+      Toggle("Show FPS counter", "mkvsdcu_show_fps");
+      ImGui::TextDisabled("Frame caps alone do not change gameplay timing.");
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("Audio and input")) {
-      Toggle("Mute audio", "audio_mute");
+    if (tab("Controls", 1)) {
       Toggle("Xbox face-button positions", "input_xbox_layout");
-      ImGui::TextWrapped("With Xbox positions enabled, the bottom face button selects and the right face button goes back. Otherwise A selects and B goes back.");
+      ImGui::TextWrapped(Value("input_xbox_layout") == "true"
+        ? "Switch B -> Xbox A, A -> B, Y -> X, X -> Y."
+        : "Switch A -> Xbox A, B -> B, X -> X, Y -> Y.");
+      ImGui::TextUnformatted("L / R -> LB / RB    ZL / ZR -> LT / RT");
+      ImGui::TextUnformatted("+ -> Start    - -> Back    + and - -> Port menu");
+      int deadzone = std::stoi(Value("mkvsdcu_stick_deadzone"));
+      if (ImGui::SliderInt("Stick deadzone", &deadzone, 0, 40, "%d%%")) Set("mkvsdcu_stick_deadzone", std::to_string(deadzone));
+      Toggle("Swap left and right sticks", "mkvsdcu_swap_sticks");
+      ImGui::TextDisabled("Controls apply immediately to all connected players.");
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("Diagnostics")) {
-      ImGui::TextWrapped("L + R + Up: performance overlay. L + R + Down: log console. L + R + Left: achievements.");
-      Toggle("Detailed thread watchdog snapshots", "mkvsdcu_watchdog_diagnostics");
-      ImGui::TextWrapped("Routine thread snapshots and ring-wait logging are off during play. The hang watchdog still reports a stall. Advanced settings exposes the SDK's full settings and configuration controls.");
-      ImGui::TextWrapped("Measure the same fight scene at the same console clocks. PC frame rates do not predict Switch performance.");
+    if (tab("Audio", 2)) {
+      Toggle("Mute audio", "audio_mute");
+      ImGui::EndTabItem();
+    }
+    if (tab("About", 3)) {
+      ImGui::TextUnformatted("Nintendo Switch | Native deko3d renderer");
+      ImGui::TextWrapped("Port settings are saved beside the NRO in mkvsdcu.toml. Use the game's own pause menu before changing settings during a fight.");
+      ImGui::TextWrapped("L + R + Up: detailed performance overlay. L + R + Down: log console.");
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();
   }
   const ImGuiKey cancel = io.ConfigNavSwapGamepadButtons ? ImGuiKey_GamepadFaceDown : ImGuiKey_GamepadFaceRight;
-  if (!open || (!ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) && ImGui::IsKeyPressed(cancel))) resume_();
+  if (!ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) && ImGui::IsKeyPressed(cancel)) resume_();
   ImGui::End();
+  ImGui::PopStyleColor(3);
 }

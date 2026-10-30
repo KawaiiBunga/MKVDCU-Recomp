@@ -77,6 +77,17 @@ bodies reproduces the unpatched access violation and passes after the patch,
 including concurrent submission/retirement. The user confirmed the patched
 build reaches fights and improves performance, but reported incomplete graphics.
 
+The same SDK patch also synchronizes callback execution with client retirement.
+The later splash-screen stack capture showed the main thread joining an audio
+engine worker while that worker waited for another wake-up. Retirement previously
+returned while an audio callback could still update the engine's busy flag.
+It now waits outside the SDK global lock for in-flight callbacks to finish.
+Self-unregistration remains supported, and its wrapped argument is freed after
+the callback returns. The production-body regression covers this interleaving,
+callback completion requiring the global lock, self-retirement, and repeated
+dispatch/retirement races; removing the synchronization makes the test fail.
+This startup correction still requires console confirmation.
+
 ### Console rendering correction (2026-10-22)
 
 A captured fight frame contained 190 draws, including 55 skipped draws using
@@ -160,12 +171,41 @@ and entering fights after the audio correction, and exposed incomplete graphics.
 The first depth-alias revision still showed only UI: console logs exposed a
 520x624 clear rectangle with a padded 520x720 scissor, which the full-scissor
 guard rejected. Recognition now intersects the clear geometry with the scissor;
-that correction passes the production-body regression but still needs a console
-retry. An intermittent startup stall after audio retirement also occurred;
-the same NRO booted on the next retry, so its cause is not established.
+the user subsequently confirmed that this restored the scene and audio.
+The intermittent startup stall was later captured with native thread stacks:
+the main thread joins an audio-engine worker that remains asleep after the
+shutdown wake-up. The callback-retirement synchronization correction above
+passes host regressions and awaits console confirmation.
 Checks remain necessary for
 movies, menus, character selection, fights/floors/shadows/effects, transitions,
 two-player rendering, saves, suspend/resume and extended play.
+
+The padded-scissor revision was subsequently tested on the Switch: the user
+confirmed that the scene and audio are visible/working. Gameplay performance
+and stability are still open. A repeated freeze at 81 seconds on the fight
+timer was traced to the render thread waiting for a pixel specialization behind
+long queued vertex compilations. Twenty exact GLSL requests were captured and
+compiled twice on the PC. The next fight captured twelve more requests, including
+a different output mask for the same large vertex shader. The merged package
+includes all 167 observed runtime variants, for 15,648 offline cache entries,
+and passes the production cache
+loader and scratch-budget checks. The updated runtime cache was uploaded and
+read-back verified; completing the same fight remains a console verification
+gate. Missing GLSL requests are saved before compilation for further offline
+cache preparation. `mkvsdcu_fast_texture_hash` selects full-byte
+ARM CRC content fingerprints (with a scalar startup self-test); false retains
+XXH3. Shader identities and persistent caches continue to use XXH3. This CPU
+change passed its Switch startup self-test; comparable performance measurements
+and longer stability testing remain necessary.
+
+`mkvsdcu_runtime_optional_compiles` defaults to false. Cached optimizations are
+always used first. Missing output-trim and early-depth variants save their exact
+GLSL once for PC compilation and render through the equivalent cached shader.
+This keeps a long optional uam compile from blocking a newly required shader on
+the Switch's single compiler worker. Required semantic specializations still
+compile when absent. The default takes precedence over the older
+`nfsmw_dk_compilar_en_fondo` scheduling option. Setting the new option to true
+restores runtime optimization compilation for development.
 
 In particular, validate MKvDCU's tiled/MSAA surface aliases, depth/stencil and
 gamma against the existing PC FSI reference. Less common signed packed texture
@@ -182,3 +222,90 @@ binding. deko3d allocates scratch across resident warps, so using a measured
 budget also bounds total allocation; see the [pinned queue work-buffer
 implementation](https://github.com/devkitPro/deko3d/blob/v0.5.0/source/queue_workbuf.cpp).
 A missing or mismatched limits file selects a conservative 1 MiB per warp.
+
+
+## Port menu and scene resolution (v9)
+
+Press **+ and - together** to open or close the port menu. Use the D-pad to
+navigate, L/R to change tabs, and the displayed A/B prompts to select/back.
+Display offers 100%, 75% and 50% scene resolution, a 60/30/uncapped rendered-frame
+cap, and a compact FPS counter. Controls offers letter/position face-button
+layouts, stick deadzone and swapped sticks. Audio includes mute.
+
+Scene resolution applies after Save settings and restart. It reduces the
+1040x624 3D scene to 780x468 or 520x312, retaining full-resolution composition,
+game UI and port menu. Other targets retain their original resolution. The cap,
+counter and controls apply immediately. Saving retains unrelated TOML values.
+
+The current 30 FPS cap does not implement full-speed 30 FPS gameplay. The
+source-backed plan for the CPU/GPU work toward 60 FPS is
+[the performance roadmap](../../docs/SWITCH_PERFORMANCE_ROADMAP.md).
+
+Cvars: `mkvsdcu_scene_scale` (100/75/50), `mkvsdcu_fps_limit` (60/30/0),
+`mkvsdcu_show_fps`, `input_xbox_layout`, `mkvsdcu_stick_deadzone` (0-40 percent),
+and `mkvsdcu_swap_sticks`. Keep `video_mode_refresh_rate` at 60.
+
+## Experimental gameplay timing (v10)
+
+The separate **Experimental 30 Hz gameplay timing** option updates the engine's
+verified fixed-step delta and accumulated clock together and enforces 30 FPS
+pacing. Save and restart to apply it. It is disabled by default. Combat, timer,
+physics and transition behavior are not validated. Hardware testing found combat
+still running at about half speed near 30 FPS. Leave it disabled for the current
+60 FPS performance work. The original
+frame cap remains available independently. `mkvsdcu_30fps_timing` controls the
+mode; `mkvsdcu_timing_diagnostics` enables sparse timing reports in original mode.
+
+## Draw CPU optimizations (v11)
+
+The fixed shader path now caches complete texture binding results, including
+signed views, sampler overrides, control words and inverse dimensions. It retains
+the existing texture-check expiry and invalidates on image generation or GPU work
+changes. Cubemap refreshes and pending/stale front-buffer lookups keep their full
+path. Initial and periodic verification compares against that path; any mismatch
+uses the fresh result and disables caching for the session.
+
+Single-range raw vertex buffers use the existing geometry store, retaining guest
+byte order, bounds and zero guard padding. Content checks, completion epochs and
+GPU fence ownership remain in force. Multi-range and memexport draws retain the
+original upload path. CPU stage timing samples approximately one in eight draws;
+the log labels the estimates and reports how many draws were actually timed.
+
+Settings for controlled comparisons (restart after changing):
+
+* `mkvsdcu_texture_binding_cache = true`; false restores uncached preparation.
+* `mkvsdcu_texture_cache_verify = false`; true checks every hit.
+* `mkvsdcu_raw_vertex_cache = true`; false restores all raw ring uploads.
+* `mkvsdcu_draw_timing_interval = 8`; 1 times every draw, 0 disables draw timers.
+
+Host equivalence tests and native build checks do not establish a console FPS
+gain. The research decisions and hardware comparison protocol are in the
+performance roadmap linked above.
+
+## Forward-only vertex shader variant (v14)
+
+GPU profiling identified one skinning vertex program accounting for roughly
+509 ms of a 527 ms frame during the severe slowdown. Its generated dispatcher
+contains only forward branches. The offline rewrite preserves those branches
+and arithmetic while removing the synthetic loop: the measured masks compile
+with 78-84 registers and zero scratch, instead of 255 registers and heavy scratch.
+
+The renderer selects this program only from its versioned offline cache keys,
+for the exact original shader fingerprint. Missing entries retain the original
+path. `mkvsdcu_acyclic_vertex_shader=false` and restart disables the selection.
+Native build checks and CPU SPIR-V equivalence tests pass; console speed and
+visual validation are still required. See the performance roadmap for the
+remaining 60 FPS work.
+
+## MK9-derived CPU comparison build (v16)
+
+Build with `scripts/build-switch-deko3d.ps1 -CpuOptimizations -Pgo off` to enable
+the staged CPU passes. They shorten verified atomic lock regions, add polling
+barriers before relaxing ordinary RAM accesses, use vector float loads, and keep
+trap handling out of hot code. MMIO, guest atomics and unrecognized lock regions
+retain their original behavior. This option changes the NRO, not the TOML.
+
+The detailed source audit, checks and remaining work are in
+[the MK9 comparison](../../docs/SWITCH_MK9_AUDIT_20261029.md). Console correctness
+and performance testing are required. The older NRO remains the rollback; a PGO
+capture must use a fresh source identity after these changes.

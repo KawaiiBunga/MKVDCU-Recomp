@@ -2,6 +2,7 @@
 // retained in these buffers; the translated shader performs format/endian work.
 #pragma once
 #include "nfsmw_dk_nucleo.h"
+#include "nfsmw_dk_geometria.h"
 #include "nfsmw_shader_library.h"
 #include <rex/system/xmemory.h>
 #include <array>
@@ -16,6 +17,7 @@ struct MemoriaDibujo {
   DkMemBlock exported = nullptr;
   Dispositivo* device = nullptr;
   uint32_t raw_bytes = 0, export_bytes = 0;
+  AlmacenGeometria::Resultado raw_cached{};
   MemoriaDibujo() = default;
   MemoriaDibujo(const MemoriaDibujo&) = delete;
   ~MemoriaDibujo() { if (exported) device->DestruirBloque(exported); }
@@ -79,8 +81,26 @@ struct MemoriaDibujo {
     dkMemBlockFlushCpuCache(exported,0,export_bytes);
     return true;
   }
-  bool Bind(Nucleo& gpu, rex::memory::Memory& memory) {
-    if (raw_bytes) {
+  bool CacheSingleRange(rex::memory::Memory& memory, AlmacenGeometria& geometry) {
+    // Preserve the raw-fetch ABI: offset zero, original byte order, aggregate
+    // bounds and the final zero guard. Multiple ranges keep the original path.
+    if (reads.size()!=1 || exported) return false;
+    const auto& range=reads.front();
+    constexpr uint64_t raw_mode=0x4D4B565241570001ull;
+    raw_cached=geometry.Buscar(memory.TranslatePhysical(range.address),range.bytes,raw_mode,raw_bytes,
+      [&](uint8_t* destination,uint32_t&,uint32_t&) {
+        std::memset(destination,0,raw_bytes);
+        std::memcpy(destination+range.offset,memory.TranslatePhysical(range.address),range.bytes);
+      });
+    return raw_cached.gpu!=0;
+  }
+  uint32_t UploadBytes() const { return raw_cached.gpu ? 0 : raw_bytes; }
+  bool Bind(Nucleo& gpu, rex::memory::Memory& memory, AlmacenGeometria& geometry, uint64_t work) {
+    if (raw_cached.gpu) {
+      // Stamp after the caller has made any upload-driven work-slot change.
+      geometry.Usar(raw_cached.entrada,work);
+      dkCmdBufBindStorageBuffer(gpu.comandos(),DkStage_Vertex,15,raw_cached.gpu,raw_bytes);
+    } else if (raw_bytes) {
       const auto upload=gpu.Reservar(raw_bytes,16);
       if (!upload) return false;
       std::memset(upload.cpu,0,raw_bytes);

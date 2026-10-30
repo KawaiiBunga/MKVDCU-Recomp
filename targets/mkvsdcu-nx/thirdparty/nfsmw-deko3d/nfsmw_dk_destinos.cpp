@@ -1,3 +1,4 @@
+#include "mkvsdcu_render_scale.h"
 // nfsmw - deko3d renderer: frames and work slots, render targets, copies (resolve and clear), the output pass with
 // the game's gamma ramp, the DKSH cache file and the statistics. See nfsmw_dk_render.h.
 
@@ -25,8 +26,13 @@
 #include "nfsmw_nativo_xenos.h"
 #include "mkvsdcu_dk_formats.h"
 
+REXCVAR_DECLARE(bool, mkvsdcu_texture_binding_cache);
+REXCVAR_DECLARE(bool, mkvsdcu_raw_vertex_cache);
+REXCVAR_DECLARE(int32_t, mkvsdcu_draw_timing_interval);
+
 // Settings of the renderer that the game hooks also read (nfsmw_nativo_ganchos.cpp). The Vulkan build defines them
 // in nfsmw_nativo_dibujos.cpp, which this build leaves out: same names, types and defaults.
+REXCVAR_DEFINE_INT32(mkvsdcu_scene_scale, 100, "MKvDCU", "Scene resolution percentage; save and restart").range(50, 100).lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_BOOL(mkvsdcu_depth_clear_aliases, true, "MKvDCU",
                     "Share uniform XDK depth clears between compatible EDRAM/MSAA surface views");
 REXCVAR_DEFINE_BOOL(nfsmw_nativo_ps_solo_alfa, true, "NFSMW",
@@ -279,19 +285,36 @@ constexpr const char* kFsCopiaColor = R"(#version 460
 layout(binding = 0) uniform sampler2D origen;
 layout(std140, binding = 0) uniform Copia {
   ivec4 desplazamiento;
+  vec4 mapping;
+  ivec4 bounds;
 } copia;
 layout(location = 0) out vec4 color;
 void main() {
-  color = texelFetch(origen, ivec2(gl_FragCoord.xy) + copia.desplazamiento.xy, 0);
+  if ((copia.mapping.xy == vec2(1.0) && copia.mapping.zw == vec2(copia.desplazamiento.xy))) {
+    color = texelFetch(origen, ivec2(gl_FragCoord.xy) + copia.desplazamiento.xy, 0);
+  } else {
+    vec2 p = gl_FragCoord.xy * copia.mapping.xy + copia.mapping.zw - 0.5;
+    ivec2 lo = ivec2(floor(p)); vec2 f = fract(p);
+    ivec2 a = clamp(lo, copia.bounds.xy, copia.bounds.zw);
+    ivec2 b = clamp(lo + ivec2(1, 0), copia.bounds.xy, copia.bounds.zw);
+    ivec2 c = clamp(lo + ivec2(0, 1), copia.bounds.xy, copia.bounds.zw);
+    ivec2 d = clamp(lo + ivec2(1, 1), copia.bounds.xy, copia.bounds.zw);
+    color = mix(mix(texelFetch(origen,a,0),texelFetch(origen,b,0),f.x),
+                mix(texelFetch(origen,c,0),texelFetch(origen,d,0),f.x),f.y);
+  }
 }
 )";
 constexpr const char* kFsCopiaProfundidad = R"(#version 460
 layout(binding = 0) uniform sampler2D origen;
 layout(std140, binding = 0) uniform Copia {
   ivec4 desplazamiento;
+  vec4 mapping;
+  ivec4 bounds;
 } copia;
 void main() {
-  gl_FragDepth = texelFetch(origen, ivec2(gl_FragCoord.xy) + copia.desplazamiento.xy, 0).r;
+  ivec2 p = (copia.mapping.xy == vec2(1.0) && copia.mapping.zw == vec2(copia.desplazamiento.xy)) ? ivec2(gl_FragCoord.xy) + copia.desplazamiento.xy
+    : clamp(ivec2(gl_FragCoord.xy * copia.mapping.xy + copia.mapping.zw), copia.bounds.xy, copia.bounds.zw);
+  gl_FragDepth = texelFetch(origen, p, 0).r;
 }
 )";
 
@@ -315,6 +338,8 @@ RenderDk::RenderDk(deko::ProveedorDeko3d& proveedor, rex::memory::Memory* memori
   config.descriptores_sampler = 1024;
   nucleo_.Crear(proveedor_.dispositivo(), config);
   geometria_.Crear(nucleo_, uint32_t(REXCVAR_GET(nfsmw_dk_geometria_mb)), REXCVAR_GET(nfsmw_dk_geometria_muestreo));
+  REXLOG_INFO("[MKvDCU] draw optimizations: texture bindings {}, raw vertices {}, CPU timing interval {} (sampled estimates)",
+    REXCVAR_GET(mkvsdcu_texture_binding_cache),REXCVAR_GET(mkvsdcu_raw_vertex_cache),REXCVAR_GET(mkvsdcu_draw_timing_interval));
   descriptores_por_liberar_.resize(kRanuras);
   lecturas_.resize(kRanuras);
   marcas_.resize(kRanuras);
@@ -555,6 +580,13 @@ bool RenderDk::Copiar3D(const ImagenDk& origen, uint32_t x0, uint32_t y0, uint32
   }
   const int32_t desplazamiento[4] = {int32_t(x0) - int32_t(dx), int32_t(y0) - int32_t(dy), 0, 0};
   std::memcpy(ubo.cpu, desplazamiento, sizeof(desplazamiento));
+  const float ratio = origen.render_scale / destino.render_scale;
+  const float mapping[4] = {ratio, ratio, desplazamiento[0] * origen.render_scale, desplazamiento[1] * origen.render_scale};
+  const auto source_rect = mkvsdcu::ScaleRect(DkScissor{x0,y0,ancho,alto}, origen.render_scale);
+  const int32_t bounds[4] = {int32_t(source_rect.x), int32_t(source_rect.y),
+    int32_t(source_rect.x+source_rect.width-1), int32_t(source_rect.y+source_rect.height-1)};
+  std::memcpy(static_cast<uint8_t*>(ubo.cpu)+16,mapping,sizeof(mapping));
+  std::memcpy(static_cast<uint8_t*>(ubo.cpu)+32,bounds,sizeof(bounds));
   const uint32_t ranura = VistaDe(origen, 0x688, z ? 0 /* RRRR */ : 0x688);
   DkCmdBuf cmd = nucleo_.comandos();
   MarcarGpu(kGpuCopias);
@@ -580,8 +612,9 @@ bool RenderDk::Copiar3D(const ImagenDk& origen, uint32_t x0, uint32_t y0, uint32
   } else {
     dkCmdBufBindRenderTarget(cmd, &vista, nullptr);
   }
-  const DkViewport vp = {float(dx), float(dy), float(ancho), float(alto), 0.0f, 1.0f};
-  const DkScissor tijera = {dx, dy, ancho, alto};
+  const float scale = destino.render_scale;
+  const DkViewport vp = {float(dx)*scale, float(dy)*scale, float(ancho)*scale, float(alto)*scale, 0.0f, 1.0f};
+  const auto tijera = mkvsdcu::ScaleRect(DkScissor{dx, dy, ancho, alto}, scale);
   dkCmdBufSetViewports(cmd, 0, &vp, 1);
   static const DkViewportSwizzle kIdentidad = {DkSwizzle_PositiveX, DkSwizzle_PositiveY, DkSwizzle_PositiveZ,
                                                 DkSwizzle_PositiveW};
@@ -726,6 +759,7 @@ ImagenDk* RenderDk::DestinoColor(uint32_t base, uint32_t formato, uint32_t pitch
     Rechazar(8, "no se pudo crear un destino de render");
     return nullptr;
   }
+  imagen.render_scale = mkvsdcu::SceneScale(pitch, REXCVAR_GET(mkvsdcu_scene_scale));
   REXLOG_INFO("[deko3d] destino de render base {:03X}, formato {}, {}x{}", base, formato, pitch, alto);
   ImagenDk& nueva = destinos_.emplace(clave, imagen).first->second;
   PrepararDestino(nueva);
@@ -751,6 +785,7 @@ ImagenDk* RenderDk::DestinoProfundidad(uint32_t base, uint32_t formato, uint32_t
     Rechazar(12, "no se pudo crear un destino de profundidad");
     return nullptr;
   }
+  imagen.render_scale = mkvsdcu::SceneScale(pitch, REXCVAR_GET(mkvsdcu_scene_scale));
   imagen.edram={base&2047,pitch,samples};
   REXLOG_INFO("[deko3d] destino de profundidad base {:03X}, formato {}, {}x{}", base, formato, pitch, alto);
   ImagenDk& nueva = profundidades_.emplace(clave, imagen).first->second;
@@ -781,7 +816,7 @@ void RenderDk::ApplyDepthAliasClears(ImagenDk& image) {
     DkCmdBuf cmd=nucleo_.comandos();
     const auto view=VistaCompleta(image.imagen);
     dkCmdBufBindRenderTargets(cmd,nullptr,0,&view);
-    const DkScissor scissor={rectangle.x0,rectangle.y0,rectangle.x1-rectangle.x0,rectangle.y1-rectangle.y0};
+    const auto scissor=mkvsdcu::ScaleRect(DkScissor{rectangle.x0,rectangle.y0,rectangle.x1-rectangle.x0,rectangle.y1-rectangle.y0}, image.render_scale);
     dkCmdBufSetScissors(cmd,0,&scissor,1);
     const float depth=image.formato==DkImageFormat_ZF32_X24S8 ? xenos::Float20e4To32(clear.depth_bits)*0.5f
                        : float(clear.depth_bits)/16777215.0f;
@@ -1052,13 +1087,18 @@ bool RenderDk::Copiar(const RegistrosCopia& reg) {
           MarcarGpu(kGpuCopias);
           AntesDeTransferir();
           if (encoger) {
-            const DkImageRect a = {uint32_t(x0), uint32_t(y0), 0, pedido_ancho, pedido_alto, 1};
+            const auto rect = mkvsdcu::ScaleRect(DkScissor{uint32_t(x0), uint32_t(y0), pedido_ancho, pedido_alto}, destino_render->render_scale);
+            const DkImageRect a = {rect.x, rect.y, 0, rect.width, rect.height, 1};
             const DkImageRect b = {dx, dy, 0, cabe_ancho, cabe_alto, 1};
             dkCmdBufBlitImage(cmd, &origen_vista, &a, &destino_vista, &b, DkBlitFlag_FilterLinear, 0);
           } else {
             const DkImageRect a = {uint32_t(x0), uint32_t(y0), 0, ancho, alto, 1};
             const DkImageRect b = {dx, dy, 0, ancho, alto, 1};
-            dkCmdBufCopyImage(cmd, &origen_vista, &a, &destino_vista, &b, 0);
+            if (destino_render->render_scale != 1.f) {
+              const auto rect=mkvsdcu::ScaleRect(DkScissor{uint32_t(x0),uint32_t(y0),ancho,alto},destino_render->render_scale);
+              const DkImageRect scaled={rect.x,rect.y,0,rect.width,rect.height,1};
+              dkCmdBufBlitImage(cmd,&origen_vista,&scaled,&destino_vista,&b,DkBlitFlag_FilterLinear,0);
+            } else dkCmdBufCopyImage(cmd, &origen_vista, &a, &destino_vista, &b, 0);
           }
         }
         resuelta->escrita = true;
@@ -1166,7 +1206,7 @@ void RenderDk::BorrarFilas(ImagenDk& destino, uint32_t i, uint32_t desde, uint32
     return;
   }
   DkCmdBuf cmd = nucleo_.comandos();
-  const DkScissor tijera = {0, desde, destino.ancho, hasta - desde};
+  const auto tijera = mkvsdcu::ScaleRect(DkScissor{0, desde, destino.ancho, hasta - desde}, destino.render_scale);
   dkCmdBufSetScissors(cmd, 0, &tijera, 1);  // clears respect the scissor (HowToDeko3d.md, section 6, item 9)
   if (destino.profundidad) {
     // The clear also sets the ZCULL data of the bound depth (deko3d).
@@ -2014,6 +2054,9 @@ void RenderDk::InformePeriodico() {
     informe_muestras_aciertos_ = muestras_aciertos_;
     informe_huellas_aplazadas_ = huellas_aplazadas_;
     informe_texturas_reusadas_ = texturas_reusadas_;
+    report_binding_queries_=binding_queries_;report_binding_hits_=binding_hits_;report_binding_checks_=binding_checks_;
+    report_draw_timing_samples_=draw_timing_samples_;
+    report_raw_queries_=raw_cache_queries_;report_raw_hits_=raw_cache_hits_;report_raw_bytes_=raw_cache_bytes_;
   };
   if (!informe_ns_) {
     tomar();
@@ -2026,6 +2069,14 @@ void RenderDk::InformePeriodico() {
   const double segundos = double(ahora - informe_ns_) / 1e9;
   const double fotogramas = std::max(1.0, double(fotograma_ - informe_fotogramas_));
   const uint64_t dibujos = dibujados_ - informe_dibujos_;
+  const uint64_t bindings=binding_queries_-report_binding_queries_;
+  NFSMW_INFORME_ANILLO(
+    "[MKvDCU] draw caches: bindings {}/{} hits, {} verified, {} mismatches total ({}); raw vertices {}/{} hits, {:.2f} MB/frame upload avoided; CPU draw timings estimated from {} samples, interval {}",
+    binding_hits_-report_binding_hits_,bindings,binding_checks_-report_binding_checks_,binding_differences_,
+    binding_cache_failed_ ? "disabled after mismatch" : "enabled unless configured off",
+    raw_cache_hits_-report_raw_hits_,raw_cache_queries_-report_raw_queries_,
+    double(raw_cache_bytes_-report_raw_bytes_)/1048576.0/fotogramas,
+    draw_timing_samples_-report_draw_timing_samples_,REXCVAR_GET(mkvsdcu_draw_timing_interval));
   const deko::EstadisticasNucleo n = nucleo_.TomarEstadisticas();
   NFSMW_INFORME_ANILLO(
       "[deko3d] ultimos {:.0f} s: {:.1f} fotogramas/s, {:.0f} dibujos por fotograma ({} rechazados en total); GPU "

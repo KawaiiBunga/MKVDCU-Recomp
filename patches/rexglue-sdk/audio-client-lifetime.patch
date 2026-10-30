@@ -1,6 +1,114 @@
+--- a/include/rex/audio/audio_system.h
++++ b/include/rex/audio/audio_system.h
+@@ -12,6 +12,7 @@
+ #pragma once
+ 
+ #include <atomic>
++#include <mutex>
+ #include <queue>
+ 
+ #include <rex/kernel.h>
+@@ -68,6 +69,7 @@
+   virtual void Initialize();
+ 
+   void WorkerThreadMain();
++  void PumpClient(size_t index, uint32_t& diag_pump_count);
+ 
+   virtual X_STATUS CreateDriver(size_t index, rex::thread::Semaphore* semaphore,
+                                 AudioDriver** out_driver) = 0;
+@@ -83,6 +85,10 @@
+   std::atomic<bool> worker_running_ = {false};
+   system::object_ref<system::XHostThread> worker_thread_;
+ 
++  // Acquire before the global region; recursive for self-unregistration.
++  std::recursive_mutex client_callback_mutex_;
++  uint32_t active_callback_arg_ = 0;
++  uint32_t retired_callback_arg_ = 0;
+   rex::thread::global_critical_region global_critical_region_;
+   static const size_t kMaximumClientCount = 8;
+   struct {
 --- a/src/audio/audio_system.cpp
 +++ b/src/audio/audio_system.cpp
-@@ -253,22 +253,27 @@
+@@ -151,30 +151,7 @@
+     if (result.first == rex::thread::WaitResult::kSuccess) {
+       auto index = result.second;
+ 
+-      auto global_lock = global_critical_region_.Acquire();
+-      uint32_t client_callback = clients_[index].callback;
+-      uint32_t client_callback_arg = clients_[index].wrapped_callback_arg;
+-      global_lock.unlock();
+-
+-      if (client_callback) {
+-        if (diag_pump_count < 10) {
+-          REXAPU_DEBUG("AudioWorker: dispatching callback {:08X} with arg {:08X} for client {}",
+-                       client_callback, client_callback_arg, index);
+-        }
+-        if (const GanchoAntesDeTrama gancho = g_gancho_antes_de_trama.load(std::memory_order_acquire)) {
+-          gancho(index);
+-        }
+-        SCOPE_profile_cpu_i("apu", "rex::audio::AudioSystem->client_callback");
+-        uint64_t args[] = {client_callback_arg};
+-        function_dispatcher_->Execute(worker_thread_->thread_state(), client_callback, args,
+-                                      rex::countof(args));
+-        if (diag_pump_count < 10) {
+-          REXAPU_DEBUG("AudioWorker: callback returned for client {}", index);
+-        }
+-        diag_pump_count++;
+-      } else {
+-        REXAPU_DEBUG("AudioWorker: semaphore signaled for client {} but callback is 0", index);
+-      }
++      PumpClient(index, diag_pump_count);
+ 
+       pumped = true;
+     }
+@@ -191,6 +168,46 @@
+   worker_running_ = false;
+ 
+   // TODO(benvanik): call module API to kill?
++}
++
++
++void AudioSystem::PumpClient(size_t index, uint32_t& diag_pump_count) {
++  // Serialize callback selection and execution with retirement. Never wait for
++  // this lock while holding the global region: guest callbacks use that region.
++  std::unique_lock<std::recursive_mutex> callback_lock(client_callback_mutex_);
++  auto global_lock = global_critical_region_.Acquire();
++  uint32_t client_callback = clients_[index].callback;
++  uint32_t client_callback_arg = clients_[index].wrapped_callback_arg;
++  global_lock.unlock();
++
++  if (client_callback) {
++    active_callback_arg_ = client_callback_arg;
++    if (diag_pump_count < 10) {
++      REXAPU_DEBUG("AudioWorker: dispatching callback {:08X} with arg {:08X} for client {}",
++                   client_callback, client_callback_arg, index);
++    }
++    if (const GanchoAntesDeTrama gancho = g_gancho_antes_de_trama.load(std::memory_order_acquire)) {
++      gancho(index);
++    }
++    SCOPE_profile_cpu_i("apu", "rex::audio::AudioSystem->client_callback");
++    uint64_t args[] = {client_callback_arg};
++    function_dispatcher_->Execute(worker_thread_->thread_state(), client_callback, args,
++                                  rex::countof(args));
++    active_callback_arg_ = 0;
++    // A callback may unregister itself. Its wrapped argument must remain alive
++    // until guest execution returns, without waiting on that same callback.
++    if (retired_callback_arg_) {
++      auto cleanup_lock = global_critical_region_.Acquire();
++      memory()->SystemHeapFree(retired_callback_arg_);
++      retired_callback_arg_ = 0;
++    }
++    if (diag_pump_count < 10) {
++      REXAPU_DEBUG("AudioWorker: callback returned for client {}", index);
++    }
++    diag_pump_count++;
++  } else {
++    REXAPU_DEBUG("AudioWorker: semaphore signaled for client {} but callback is 0", index);
++  }
+ }
+ 
+ int AudioSystem::FindFreeClient() {
+@@ -253,22 +270,27 @@
    auto global_lock = global_critical_region_.Acquire();
  
    auto index = FindFreeClient();
@@ -34,7 +142,7 @@
    memory::store_and_swap<uint32_t>(memory()->TranslateVirtual(ptr), callback_arg);
  
    clients_[index] = {driver, callback, callback_arg, ptr, true};
-@@ -277,6 +282,10 @@
+@@ -277,6 +299,10 @@
      *out_index = index;
    }
  
@@ -45,7 +153,7 @@
    return X_STATUS_SUCCESS;
  }
  
-@@ -291,8 +300,17 @@
+@@ -291,18 +317,36 @@
    }
  
    auto global_lock = global_critical_region_.Acquire();
@@ -65,18 +173,27 @@
    (clients_[index].driver)->SubmitFrame(samples_ptr);
  }
  
-@@ -300,7 +318,10 @@
+ void AudioSystem::UnregisterClient(size_t index) {
    SCOPE_profile_cpu_f("apu");
  
++  std::unique_lock<std::recursive_mutex> callback_lock(client_callback_mutex_);
    auto global_lock = global_critical_region_.Acquire();
 -  assert_true(index < kMaximumClientCount);
 +  if (index >= kMaximumClientCount || !clients_[index].in_use || !clients_[index].driver) {
 +    return;
 +  }
-+  REXAPU_INFO("Audio client {} unregistered", index);
++  REXAPU_INFO("Audio client {} unregister: synchronized with callbacks", index);
    DestroyDriver(clients_[index].driver);
-   memory()->SystemHeapFree(clients_[index].wrapped_callback_arg);
+-  memory()->SystemHeapFree(clients_[index].wrapped_callback_arg);
++  const uint32_t wrapped_arg = clients_[index].wrapped_callback_arg;
++  if (wrapped_arg && wrapped_arg == active_callback_arg_) {
++    retired_callback_arg_ = wrapped_arg;
++  } else {
++    memory()->SystemHeapFree(wrapped_arg);
++  }
    clients_[index] = {nullptr, 0, 0, 0, false};
+ 
+   // Drain the semaphore of its count.
 --- a/src/kernel/xboxkrnl/xboxkrnl_audio.cpp
 +++ b/src/kernel/xboxkrnl/xboxkrnl_audio.cpp
 @@ -233,7 +233,9 @@

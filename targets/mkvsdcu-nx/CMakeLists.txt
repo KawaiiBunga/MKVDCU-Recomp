@@ -28,9 +28,12 @@ set(MKVSDCU_SOURCES
     src/mkvsdcu_espera_anillo.cpp
     src/mkvsdcu_port_menu.cpp
     src/mkvsdcu_frame_telemetry.cpp
+    src/mkvsdcu_pgo.cpp
 )
 if(NOT MKVSDCU_DEKO3D)
     list(APPEND MKVSDCU_SOURCES src/rust_switch_stubs.c)
+else()
+    list(APPEND MKVSDCU_SOURCES src/mkvsdcu_frame_timing.cpp)
 endif()
 
 add_executable(mkvsdcu ${MKVSDCU_SOURCES})
@@ -52,6 +55,10 @@ if(REXGLUE_PLATFORM_SWITCH)
     # Weak sub_ aliases deliberately keep hooks overridable, but GCC cannot
     # inline calls through them. Stage direct calls only for unhooked functions.
     option(MKVSDCU_DIRECT_CALLS "Hook-safe direct calls in generated Switch code" ON)
+    option(MKVSDCU_CPU_OPTIMIZATIONS "Audited atomic, RAM, float-load and cold-trap passes" OFF)
+    if(MKVSDCU_CPU_OPTIMIZATIONS AND NOT MKVSDCU_DIRECT_CALLS)
+        message(FATAL_ERROR "CPU passes require the staged direct-call pipeline")
+    endif()
     if(MKVSDCU_DIRECT_CALLS)
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
         set(_direct_dir "${CMAKE_CURRENT_BINARY_DIR}/direct-calls")
@@ -69,6 +76,25 @@ if(REXGLUE_PLATFORM_SWITCH)
         set(_staged_sources "")
         set(_direct_outputs "")
         set(_direct_inputs "")
+        file(GLOB _direct_headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default/*.h")
+        foreach(_header IN LISTS _direct_headers)
+            get_filename_component(_name "${_header}" NAME)
+            list(APPEND _direct_outputs "${_direct_dir}/${_name}")
+        endforeach()
+        set(_cpu_args "")
+        if(MKVSDCU_CPU_OPTIMIZATIONS)
+            list(APPEND _cpu_args --cpu-passes)
+            target_compile_definitions(mkvsdcu PRIVATE MKVSDCU_CPU_OPTIMIZATIONS=1)
+            # Ordinary guest RAM aliases across scalar/vector types. Match the
+            # SDK's semantics instead of allowing strict-aliasing assumptions or
+            # implicit multiply-add contraction after the volatile pass.
+            foreach(_cpu_target mkvsdcu_recomp mkvsdcu)
+                target_compile_options(${_cpu_target} PRIVATE -fno-strict-aliasing -ffp-contract=off)
+            endforeach()
+            target_link_options(mkvsdcu PRIVATE -fno-strict-aliasing -ffp-contract=off)
+            # Avoid a forced original PCH overriding the staged memory macros.
+            set_property(TARGET mkvsdcu_recomp PROPERTY DISABLE_PRECOMPILE_HEADERS ON)
+        endif()
         foreach(_source IN LISTS _original_sources)
             get_filename_component(_name "${_source}" NAME)
             if(_name MATCHES "^mkvsdcu_recomp\\.[0-9]+\\.cpp$")
@@ -83,10 +109,12 @@ if(REXGLUE_PLATFORM_SWITCH)
             COMMAND "${Python3_EXECUTABLE}" "${_direct_script}"
                 --generated "${CMAKE_CURRENT_SOURCE_DIR}/generated/default"
                 --output "${_direct_dir}"
+                ${_cpu_args}
                 --hook-root "${CMAKE_CURRENT_SOURCE_DIR}/src"
                 --hook-root "${_pc_host}/src" --hook-root "${_pc_host}/config"
                 --hook-root "${_sdk_root}/src" --hook-root "${_sdk_root}/include"
-            DEPENDS ${_direct_inputs} ${_hook_inputs} "${_direct_script}"
+            DEPENDS ${_direct_inputs} ${_direct_headers} ${_hook_inputs} "${_direct_script}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/switch-cpu-passes.py"
             COMMENT "Staging hook-safe direct calls for Switch LTO" VERBATIM)
         add_custom_target(mkvsdcu_direct_calls DEPENDS ${_direct_outputs})
         add_dependencies(mkvsdcu_direct_calls mkvsdcu_codegen)
@@ -119,6 +147,8 @@ if(REXGLUE_PLATFORM_SWITCH)
         endif()
         target_link_options(mkvsdcu PRIVATE -flto=${MKVSDCU_LTO_JOBS} -flto-partition=balanced)
     endif()
+
+    include(cmake/pgo.cmake)
 
     # Package as Homebrew NRO
     rexglue_switch_add_nro(mkvsdcu
