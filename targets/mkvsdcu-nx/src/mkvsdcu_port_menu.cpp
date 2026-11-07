@@ -58,7 +58,7 @@ void MkvsdcuPortMenu::Save() {
     toml::table document;
     if (std::filesystem::exists(config_)) document = toml::parse_file(config_.string());
     const auto live = toml::parse(rex::cvar::SerializeToTOML());
-    constexpr const char* keys[] = {"mkvsdcu_scene_scale", "mkvsdcu_fps_limit", "mkvsdcu_show_fps", "mkvsdcu_30fps_timing",
+    constexpr const char* keys[] = {"mkvsdcu_scene_scale", "mkvsdcu_fps_limit", "mkvsdcu_show_fps", "mkvsdcu_30fps_timing", "mkvsdcu_30fps_render",
       "input_xbox_layout", "mkvsdcu_stick_deadzone", "mkvsdcu_swap_sticks", "audio_mute"};
     for (const char* key : keys) {
       if (const auto it = pending_.find(key); it != pending_.end()) {
@@ -156,9 +156,9 @@ void MkvsdcuPortMenu::OnDraw(ImGuiIO& io) {
       ImGui::Separator();
       ImGui::TextColored(ImVec4(.73f,.64f,.49f,1.f), "FRAME RATE");
 #if MKVSDCU_DEKO3D
-      Toggle("Experimental 30 Hz gameplay timing (restart)", "mkvsdcu_30fps_timing", true);
-      const bool timing30 = Value("mkvsdcu_30fps_timing") == "true";
-      if (timing30) ImGui::TextWrapped("30 Hz engine timing, 30 FPS pacing. Combat/timer behavior is under testing. Save and restart to apply.");
+      Toggle("30 FPS rendering / full-speed target (restart)", "mkvsdcu_30fps_render", true);
+      const bool timing30 = Value("mkvsdcu_30fps_render") == "true";
+      if (timing30) ImGui::TextWrapped("Experimental: keeps the original 60 Hz game updates and draws every other frame. Save and restart. Full speed requires enough CPU time for both updates.");
       ImGui::BeginDisabled(timing30);
 #endif
       const std::string fps = Value("mkvsdcu_fps_limit");

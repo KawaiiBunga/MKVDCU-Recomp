@@ -19,6 +19,7 @@ targets=(native/'nfsmw_dk_destinos.cpp').read_text()
 xenos=(root/'references/rexglue-sdk/src/graphics/xenos.cpp').read_text()
 source=r'''
 #include "mkvsdcu_edram_clear.h"
+#include "mkvsdcu_render_scale.h"
 #include <array>
 #include <bit>
 #include <cassert>
@@ -57,6 +58,7 @@ enum { DkImageFormat_Z24S8=1,DkImageFormat_ZF32_X24S8=2 };
 struct DkScissor { uint32_t x,y,width,height; };
 using DkCmdBuf=void*;
 struct Image { EdramSurface edram{}; uint64_t edram_clear_serial=0,version=0;
+  float render_scale=1.f;
   uint32_t ancho=520,alto=720,formato=DkImageFormat_ZF32_X24S8,imagen=0,serie=0; };
 unsigned gpu_clears=0,bound_image=0; float cleared_depth=-1; unsigned cleared_stencil_mask=0;
 DkScissor cleared_scissor{};
@@ -156,6 +158,12 @@ int main(int argc,char** argv) {
   Image single=scene;single.edram.samples=0;single.edram_clear_serial=0;
   renderer.ApplyDepthAliasClears(single);
   assert(cleared_scissor.width==1040 && cleared_scissor.height==624);
+  Image scaled=single;scaled.render_scale=.75f;scaled.edram_clear_serial=0;
+  renderer.ApplyDepthAliasClears(scaled);
+  assert(cleared_scissor.width==780 && cleared_scissor.height==468);
+  scaled.render_scale=.5f;scaled.edram_clear_serial=0;
+  renderer.ApplyDepthAliasClears(scaled);
+  assert(cleared_scissor.width==520 && cleared_scissor.height==312);
   upload(coordinates);
   aliases=false;assert(!renderer.RecordDepthClear(request,0,2,viewport,ndc,scissor));aliases=true;
   std::puts("PASS: captured XDK clear recognized with hardware's padded scissor; zero depth/stencil replayed to 2x/1x aliases; partial/scissored bounds preserved; stale/fractional/discarded clears rejected");

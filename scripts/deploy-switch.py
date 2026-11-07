@@ -5,10 +5,21 @@ import ftplib
 import hashlib
 import json
 from pathlib import Path
+import time
+
+
+class SwitchFTP(ftplib.FTP):
+    def makeport(self):
+        listener = super().makeport()
+        # This console's server can acknowledge PORT before its network loop
+        # is ready for RETR/STOR. Pacing avoids intermittent 425 responses.
+        time.sleep(0.1)
+        return listener
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--host", required=True)
 parser.add_argument("--port", type=int, default=5000)
+parser.add_argument("--active", action="store_true", help="Use FTP active data mode if the server rejects PASV")
 parser.add_argument("--remote", default="/sdmc:/switch/mkvsdcu")
 parser.add_argument("--dist", type=Path, required=True)
 parser.add_argument("--receipt", type=Path, required=True)
@@ -32,12 +43,32 @@ for name in dict.fromkeys(args.files):
         raise SystemExit('Shader file does not match verified package: '+name)
     file_hashes[name] = fingerprint
 stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-ftp = ftplib.FTP()
+ftp = SwitchFTP()
 ftp.connect(args.host, args.port, timeout=30)
 ftp.login()
+ftp.set_pasv(not args.active)
 ftp.cwd(args.remote)
 existing = set(ftp.nlst())
 existing = {name.rsplit("/", 1)[-1] for name in existing}
+# A binary-only update requires the complete native shader installation. DKSH
+# caches cannot replace the NFSP library needed during graphics setup.
+if verification.get('graphics_api') == 'deko3d' and 'mkvsdcu.nro' in args.files:
+    required = ('mkvsdcu_shaders_dk.nfsp', 'mkvsdcu_shadercache_dksh.bin', 'mkvsdcu_shader_limits.bin')
+    ftp.voidcmd('TYPE I')
+    problems = []
+    for name in required:
+        if name in args.files:
+            continue  # validated locally above and read back before replacement
+        if name not in existing:
+            problems.append(name + ' is missing')
+            continue
+        size = ftp.size(name)
+        expected_size = shader_files.get(name, {}).get('bytes')
+        if not size or (expected_size is not None and size != expected_size):
+            problems.append(name + ' has an invalid size')
+    if problems:
+        ftp.quit()
+        raise SystemExit('Incomplete native installation; deploy the full shader package with the NRO: ' + '; '.join(problems))
 installed = []
 backups = {}
 staged = {}
@@ -70,6 +101,7 @@ try:
         ftp.rename(temporary, name)
         installed.append(name)
     receipt = {"host": args.host, "port": args.port, "remote": args.remote,
+               "data_mode": "active" if args.active else "passive",
                "installed": installed, "backups": backups, "sha256": verification["sha256"],
                "file_sha256": file_hashes,
                "deployed_utc": stamp}
@@ -87,4 +119,7 @@ except Exception:
             print("Restore requires attention: " + name + ": " + str(restore_error), flush=True)
     raise
 finally:
-    ftp.close()
+    try:
+        ftp.quit()
+    except Exception:
+        ftp.close()

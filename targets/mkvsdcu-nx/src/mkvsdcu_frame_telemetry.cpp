@@ -9,6 +9,7 @@ extern std::atomic<uint64_t> g_mkvsdcu_frames_rendered;
 #if MKVSDCU_DEKO3D
 extern std::atomic<uint64_t> g_nfsmw_fotogramas_juego;
 REXCVAR_DECLARE(bool, mkvsdcu_30fps_timing);
+extern std::atomic<bool> g_mkvsdcu_render_cadence_active;
 #endif
 extern "C" REX_FUNC(__real___imp__VdSwap);
 
@@ -23,6 +24,7 @@ extern "C" REX_FUNC(__wrap___imp__VdSwap) {
   int cap = REXCVAR_GET(mkvsdcu_fps_limit);
 #if MKVSDCU_DEKO3D
   if (REXCVAR_GET(mkvsdcu_30fps_timing)) cap = 30;
+  if (g_mkvsdcu_render_cadence_active.load(std::memory_order_relaxed)) cap = 0;
 #endif
   auto now = Clock::now();
   if (cap > 0) {

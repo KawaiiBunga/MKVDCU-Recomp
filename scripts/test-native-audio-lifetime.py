@@ -22,10 +22,12 @@ SHIM = r'''
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <thread>
 #define SCOPE_profile_cpu_f(...) ((void)0)
+#define SCOPE_profile_cpu_i(...) ((void)0)
 #define REXAPU_DEBUG(...) ((void)0)
 #define REXAPU_INFO(...) ((void)0)
 #define REXAPU_WARN(...) ((void)0)
@@ -34,12 +36,15 @@ SHIM = r'''
 using u32 = uint32_t;
 constexpr u32 X_ERROR_SUCCESS = 0;
 constexpr u32 X_E_INVALIDARG = 0x80070057;
-void check(bool ok) { if (!ok) std::abort(); }
+void check(bool ok) { if (!ok) { std::fputs("audio lifetime check failed\n", stderr); std::exit(1); } }
 struct mapped_void {
   u32 address;
   u32 guest_address() const { return address; }
 };
 std::atomic<unsigned> frames{0}, destroyed{0}, freed{0}, dumps{0};
+namespace rex {
+template<class T, size_t N> constexpr size_t countof(T(&)[N]) { return N; }
+}
 namespace rex::thread {
 struct Semaphore {};
 enum class WaitResult { kSuccess, kTimeout };
@@ -54,6 +59,13 @@ struct Memory {
   template<class T> T TranslateVirtual(u32) { return nullptr; }
 } guest_memory;
 namespace rex::audio {
+using GanchoAntesDeTrama = void(*)(unsigned);
+std::atomic<GanchoAntesDeTrama> g_gancho_antes_de_trama{nullptr};
+struct Dispatcher {
+  std::function<void()> execute;
+  void Execute(void*, u32, uint64_t*, size_t) { execute(); }
+};
+struct Worker { void* thread_state() { return nullptr; } };
 struct AudioDriver {
   virtual ~AudioDriver() { ++destroyed; }
   virtual void SubmitFrame(u32) { ++frames; }
@@ -66,6 +78,12 @@ struct AudioSystem {
     bool in_use;
   } clients_[kMaximumClientCount]{};
   Region global_critical_region_;
+  std::recursive_mutex client_callback_mutex_;
+  u32 active_callback_arg_ = 0, retired_callback_arg_ = 0;
+  Dispatcher dispatcher;
+  Dispatcher* function_dispatcher_ = &dispatcher;
+  Worker worker;
+  Worker* worker_thread_ = &worker;
   std::unique_ptr<rex::thread::Semaphore> client_semaphores_[kMaximumClientCount];
   AudioSystem() {
     for (auto& semaphore : client_semaphores_)
@@ -75,6 +93,7 @@ struct AudioSystem {
   void DestroyDriver(AudioDriver* driver) { check(driver != nullptr); delete driver; }
   void SubmitFrame(size_t, u32);
   void UnregisterClient(size_t);
+  void PumpClient(size_t, u32&);
   void Activate() { clients_[0] = {new AudioDriver, 1, 2, 3, true}; }
 };
 // PRODUCTION_AUDIO_BODIES
@@ -121,8 +140,70 @@ int main() {
   const unsigned submitted = frames;
   audio.SubmitFrame(0, 123);
   check(frames == submitted && destroyed == 2 && freed == 2);
+
+  // Reproduce the shutdown interleaving: retirement must not return while
+  // the callback can still change the guest's engine-busy flag.
+  audio.Activate();
+  std::atomic<bool> entered{false}, may_finish{false}, retiring{false}, retired{false};
+  std::atomic<bool> engine_busy{false};
+  const unsigned before_retire = freed;
+  audio.dispatcher.execute = [&] {
+    engine_busy = true;
+    entered = true;
+    while (!may_finish) std::this_thread::yield();
+    // Retirement must release the global region while waiting, or this
+    // real callback's submission deadlocks against it.
+    audio.SubmitFrame(0, 123);
+    check(freed == before_retire);
+    engine_busy = false;
+  };
+  u32 pump_count = 0;
+  std::thread callback([&] { audio.PumpClient(0, pump_count); });
+  while (!entered) std::this_thread::yield();
+  std::thread retire([&] {
+    retiring = true;
+    audio.UnregisterClient(0);
+    check(!engine_busy);
+    retired = true;
+  });
+  while (!retiring) std::this_thread::yield();
+  std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  check(!retired && freed == before_retire);
+  may_finish = true;
+  callback.join(); retire.join();
+  check(retired && pump_count == 1 && freed == before_retire+1);
+  audio.PumpClient(0, pump_count);  // A stale semaphore may not dispatch again.
+  check(pump_count == 1);
+
+  // Self-unregistration cannot wait on itself or free its callback argument
+  // before Execute returns; the production epilogue reclaims it exactly once.
+  audio.Activate();
+  const unsigned before_self = freed;
+  audio.dispatcher.execute = [&] {
+    audio.UnregisterClient(0);
+    check(freed == before_self);
+    audio.UnregisterClient(0);
+    check(freed == before_self);
+  };
+  audio.PumpClient(0, pump_count);
+  check(pump_count == 2 && freed == before_self+1);
+
+  // Exercise selection/retirement races repeatedly. Once retirement returns,
+  // no new callback may start, even with leftover semaphore tokens.
+  for (unsigned round=0; round<100; ++round) {
+    audio.Activate();
+    std::atomic<unsigned> calls{0};
+    audio.dispatcher.execute = [&] { ++calls; audio.SubmitFrame(0, 123); };
+    std::thread racing([&] { u32 n=0; for(unsigned i=0;i<100;++i) audio.PumpClient(0,n); });
+    audio.UnregisterClient(0);
+    const unsigned after = calls;
+    racing.join();
+    check(calls == after);
+  }
   std::puts("PASS: zero/invalid handles, inactive and out-of-range slots, live delivery, "
-            "retired submission, duplicate retirement, concurrent submission/retirement");
+            "retired submission, duplicate retirement, concurrent submission/retirement, "
+            "in-flight callback quiescence, unlocked callback completion, deferred self-retirement, "
+            "100 callback-selection/retirement races");
 }
 '''
 
@@ -137,7 +218,8 @@ def main():
     kernel = (args.sdk/'src/kernel/xboxkrnl/xboxkrnl_audio.cpp').read_text()
     code = SHIM.replace('// PRODUCTION_AUDIO_BODIES', '\n'.join(
         function(audio, signature) for signature in (
-            'void AudioSystem::SubmitFrame(', 'void AudioSystem::UnregisterClient(')))
+            'void AudioSystem::SubmitFrame(', 'void AudioSystem::UnregisterClient(',
+            'void AudioSystem::PumpClient(')))
     code = code.replace('// PRODUCTION_KERNEL_BODIES', '\n'.join(
         function(kernel, signature) for signature in (
             'u32 XAudioSubmitRenderDriverFrame_entry(',

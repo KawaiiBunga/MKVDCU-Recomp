@@ -36,6 +36,11 @@ def main():
         'mkvsdcu.nro':nro,
         'mkvsdcu.toml':root/'targets/mkvsdcu-nx/config/deko3d-defaults.toml',
         'README.md':root/'targets/mkvsdcu-nx/DEKO3D.md',
+        'PERFORMANCE.md':root/'docs/SWITCH_PERFORMANCE_ROADMAP.md',
+        'SWITCH_60FPS_RESEARCH_20261025.md':root/'docs/SWITCH_60FPS_RESEARCH_20261025.md',
+        'SWITCH_VERTEX_SHADER_OPTIMIZATION_20261025.md':root/'docs/SWITCH_VERTEX_SHADER_OPTIMIZATION_20261025.md',
+        'SWITCH_MK9_AUDIT_20261029.md':root/'docs/SWITCH_MK9_AUDIT_20261029.md',
+        'SWITCH_PGO_AUDIT_20261026.md':root/'docs/SWITCH_PGO_AUDIT_20261026.md',
         'switch-build-verification.json':args.build/'switch-build-verification.json',
         'shader-verification.json':args.shaders/'shader-verification.json',
         'licenses/renderer-GPL-3.0.txt':root/'targets/mkvsdcu-nx/thirdparty/nfsmw-deko3d/LICENSE',
@@ -47,12 +52,17 @@ def main():
     for name,source in sources.items():
         destination=args.output/name
         destination.parent.mkdir(parents=True,exist_ok=True)
-        shutil.copyfile(source,destination)
+        if name == 'README.md':
+            destination.write_text(source.read_text().replace(
+                '../../docs/SWITCH_PERFORMANCE_ROADMAP.md', 'PERFORMANCE.md').replace(
+                '../../docs/SWITCH_MK9_AUDIT_20261029.md', 'SWITCH_MK9_AUDIT_20261029.md'), encoding='utf-8')
+        else:
+            shutil.copyfile(source,destination)
         files[name]={'bytes':destination.stat().st_size,'sha256':digest(destination)}
     report={'graphics_api':'deko3d','hardware_tested':False,'shader_containers':shaders['shaders'],
         'base_static_shaders':static_count,
         'native_cache_entries':shaders['cache_entries'],'files':files,
-        'warning':'Private shaders from the user game; no redistribution. Current rendering correction awaits console visual/performance verification.'}
+        'warning':'Private shaders from the user game; no redistribution. This package requires console stability and performance verification.'}
     (args.output/'package-verification.json').write_text(json.dumps(report,indent=2)+'\n')
     archive=args.output.parent/'mkvsdcu-deko3d.zip'
     with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=1,allowZip64=True) as z:

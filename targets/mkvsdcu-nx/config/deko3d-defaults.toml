@@ -22,6 +22,9 @@ mkvsdcu_switch_gpu_mhz = 0
 mkvsdcu_scene_scale = 100
 mkvsdcu_fps_limit = 60
 mkvsdcu_30fps_timing = false
+# Experimental render decimation: original 60 Hz simulation, 30 viewport draws/s.
+# Takes precedence over the old delta-doubling experiment above. Save/restart.
+mkvsdcu_30fps_render = false
 mkvsdcu_show_fps = false
 input_xbox_layout = false
 mkvsdcu_stick_deadzone = 0

@@ -53,7 +53,7 @@ def main():
             subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-File',
                 str(ROOT/'scripts/deko3d-junction.ps1'), '-Path', str(target), '-Target', str(source)], check=True)
     patches = [ROOT/'patches/rexglue-sdk'/name for name in
-               ('switch-port-menu.patch', 'audio-client-lifetime.patch')]
+               ('switch-port-menu.patch', 'audio-client-lifetime.patch', 'switch-port-controls.patch')]
     git = ['git', '-c', 'safe.directory='+ROOT.as_posix(), '-C', str(ROOT), 'apply',
            '--directory=references/mkvsdcu-deko-sdk', '--ignore-space-change']
     for patch in patches:

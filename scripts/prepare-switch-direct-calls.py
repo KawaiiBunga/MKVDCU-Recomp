@@ -9,6 +9,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import importlib.util
 
 ADDRESS = re.compile(r"(?<![0-9A-Fa-f])(8[0-9A-Fa-f]{7})(?![0-9A-Fa-f])")
 CALL = re.compile(r"(?<![\w])sub_([0-9A-Fa-f]{8})\(ctx, base\);")
@@ -41,15 +42,36 @@ def main():
     parser.add_argument("--generated", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--hook-root", type=Path, action="append", default=[])
+    parser.add_argument("--cpu-passes", action="store_true")
     args = parser.parse_args()
     hooks = find_hooks(args.hook_root)
     args.output.mkdir(parents=True, exist_ok=True)
+    cpu = None
+    totals = {}
+    if args.cpu_passes:
+        spec = importlib.util.spec_from_file_location('switch_cpu_passes', Path(__file__).with_name('switch-cpu-passes.py'))
+        cpu = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cpu)
+    # Local function headers must resolve the staged PCH, not the untouched
+    # generated directory's header. Copy on both paths so switching back is safe.
+    for source in args.generated.glob('*.h'):
+        contents = source.read_text(encoding='utf-8')
+        if cpu and source.name == 'mkvsdcu_pch.h':
+            contents = cpu.patch_header(contents)
+        destination = args.output/source.name
+        data = contents.encode('utf-8')
+        if not destination.exists() or destination.read_bytes() != data:
+            destination.write_bytes(data)
     changed_calls = kept_calls = existing_direct_calls = restored_calls = files = 0
     for source in sorted(args.generated.glob("mkvsdcu_recomp.*.cpp")):
         original = source.read_text(encoding="utf-8")
         existing_direct_calls += len(re.findall(r"__imp__sub_[0-9A-Fa-f]{8}\(ctx, base\);", original))
         restored_calls += sum(m[1].upper() in hooks for m in DIRECT_CALL.finditer(original))
         staged = transform(original, hooks)
+        if cpu:
+            staged, counts = cpu.transform(staged)
+            for key, value in counts.items():
+                totals[key] = totals.get(key, 0) + value
         for call in CALL.finditer(original):
             if call[1].upper() in hooks:
                 kept_calls += 1
@@ -66,6 +88,7 @@ def main():
     report = {"files": files, "direct_calls_added": changed_calls, "direct_calls_existing": existing_direct_calls,
               "direct_calls_restored_for_hooks": restored_calls, "hooked_calls_preserved": kept_calls + restored_calls,
               "protected_addresses": sorted(hooks), "generated_inputs_modified": False}
+    report['cpu_passes'] = dict(enabled=args.cpu_passes, **totals)
     (args.output / "direct-calls-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Direct calls added: {changed_calls}; already direct: {existing_direct_calls}; protected alias calls: {kept_calls}; staged files: {files}")
 
